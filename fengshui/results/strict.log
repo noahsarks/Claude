@@ -1,0 +1,6 @@
+明十三陵·长陵          史载θ=    0° final=0.689 | 自动θ=   90° final=0.758 | naive= 89.3% matched= 86.0% (n=150) faults=['F3_折臂']
+北京故宫·太和殿         史载θ=    0° final=0.388 | 自动θ=  330° final=0.405 | naive= 50.0% matched= 44.7% (n=150) faults=[]
+清东陵·孝陵           史载θ=    0° final=0.546 | 自动θ=    0° final=0.546 | naive= 54.7% matched= 40.7% (n=150) faults=['F3_折臂']
+秦始皇陵·封土          史载θ=  180° final=0.533 | 自动θ=  170° final=0.546 | naive= 56.7% matched= 15.3% (n=150) faults=[]
+唐乾陵·北峰玄宫         史载θ=    0° final=0.303 | 自动θ=    0° final=0.303 | naive=  0.0% matched=  0.0% (n=150) faults=[]
+saved

@@ -1,0 +1,194 @@
+# 峦头规则库 v0.1
+# 全部条目抽自 youngzs/xuanxue 仓库 docs/ 下的形势派原典，source 字段为可回溯路径。
+# computable: full=30m DEM 可直接算 | partial=近似 | no=尺度或语义超出栅格能力
+
+meta:
+  texts_read:
+    - 葬经/000气感篇.md
+    - 葬经/001因势篇.md
+    - 葬经翼/000原势.md, 001察形.md, 003穴病.md, 006四兽砂水.md, 007明堂.md, 009水口.md
+    - 博山篇/001论龙.md, 003论砂.md, 004论水.md, 005论明堂.md, 007论平地.md
+    - 雪心赋/003第四章：论水法.md
+    - 发微论/002聚散篇.md（含向背篇）, 005顺逆篇.md
+  scale: 分析半径 3 km；小明堂等米级形制(窝钳乳突、虾须蟹眼)在 30 m DEM 下不可见，已标 computable=no
+
+# ── 权重的原典依据（不是拍脑袋）──────────────────────────────
+weights:
+  basis:
+    - quote: "风水之法，得水为上，藏风次之"
+      source: 葬经/000气感篇.md
+      implies: W(水) > W(藏风)   # 显式序关系
+    - quote: "其中最重惟中明堂"
+      source: 博山篇/005论明堂.md
+      implies: 明堂在四象中权重最高
+    - quote: "四砂惟朝，关系匪轻，高低穴法，只此可凭"
+      source: 博山篇/003论砂.md
+      implies: 朝案权重高于侍卫砂
+    - quote: "地理之要，不过山水向背而已矣"
+      source: 发微论/向背篇（并入002聚散篇.md）
+      implies: 向背应为独立高权重项
+    - quote: "平原无山只看水…有了水就能聚气，藏不藏风也就无所谓了"
+      source: 葬经/000气感篇.md
+    - quote: "陇龙属阴，其气浮如，最怕风吹；支龙属阳，其气沉如，不怕风吹"
+      source: 博山篇/001论龙.md
+      implies: 权重必须随地形分模式（山陇 / 平支），不是一套权重走天下
+  mountain_mode:   {water: 0.22, water_gate: 0.10, mingtang: 0.18, xuanwu: 0.16, hulong: 0.12, xiangbei: 0.12, zangfeng: 0.10}
+  plain_mode:      {water: 0.34, water_gate: 0.14, mingtang: 0.22, xuanwu: 0.08, hulong: 0.06, xiangbei: 0.13, zangfeng: 0.03}
+  mode_switch:
+    metric: relief_3km          # 3 km 半径内高程极差
+    threshold_m: 120            # < 120 m 判为平支，用 plain_mode
+    source_quote: "起一起，便是山。低一低，便是水"
+    source: 博山篇/007论平地.md
+
+# ── 吉格：加分项 ─────────────────────────────────────────────
+rules:
+  - id: R1_xuanwu_chuitou
+    name: 玄武垂头
+    computable: full
+    quote: "后有真龙来住，有情作穴，开面降势方名元武垂头，反是者为拒尸"
+    source: 葬经翼/006四兽砂水.md
+    also: ["后元武，要睡头 — 博山篇/003论砂.md"]
+    metric: |
+      后方扇区(坐山方向±60°)：
+        backing   = P75(0.3–2km 高程) − h0                  # 有靠
+        descent   = 1 − slope(0–0.3km) / slope(0.3–1.0km)   # 降势：末段应比中段更缓
+      吉：backing > 0 且 descent > 0
+  - id: R2_hulong_huanbao
+    name: 龙虎环抱·不逼不压
+    computable: full
+    quote: "贴身左右二砂…以其护卫区穴，不使风吹，环抱有情，不逼不压，不折不窜"
+    source: 葬经翼/006四兽砂水.md
+    metric: |
+      左右扇区(±30°~90°) 0.2–1.5km：
+        has_sha  = min(L_rise, R_rise) > 0
+        balance  = 1 − |L−R| / max(L,R)
+        not_bi   = max(左右仰角) < 25°        # 逼压上限
+  - id: R3_xiangbei_kaimian
+    name: 向背·开面向里
+    computable: full
+    quote: "至于砂之插回收水者，必须开面向里，不拘远近，俱名有情" / "背厚面薄，背顽面秀，背挺面湾"
+    source: 葬经翼/006四兽砂水.md
+    also: ["其向我者，必有周旋相与之意；其背我者，必有厌弃不顾之状 — 发微论/向背篇"]
+    metric: |
+      0.3–2km 环带内全部像元：
+        facing_ratio = count(aspect 与 指向穴方位 夹角 < 90°) / count(全部)
+      「背挺面湾」→ 面向穴的坡应为凹形，附加 concavity 项
+  - id: R4_mingtang
+    name: 明堂·轩豁而不旷
+    computable: full
+    quote: "低平洼，方是处。要藏风，要聚气" / "宽不至旷，狭不至逼，斯名全吉" / "堂之广狭，随龙长短"
+    source: 博山篇/005论明堂.md
+    also: ["前朱雀，尤紧急，要翔舞，须轩豁 — 博山篇/003论砂.md"]
+    metric: |
+      前方扇区(±45°)：
+        flatness  = 1 − normalized(mean slope 0.1–0.8km)
+        low       = 前方 0.1–0.8km 高程中位数 ≤ h0
+        openness  = 1 − mean(前方天际线仰角)/25°
+      非单调：openness 过高(全无遮拦=旷) 亦扣分
+  - id: R5_ancase_chaoshan
+    name: 案近朝远
+    computable: full
+    quote: "朝不厌远，案固欲近。案秀尖员，厥形为上…中高中低，几几相合，高凌低脱"
+    source: 博山篇/003论砂.md
+    metric: |
+      案：前方 0.3–2km 存在局部峰，峰顶高于 h0 但仰角 3°~15°（低脱/高凌两端扣分）
+      朝：前方 2–3km（受窗口限制）存在更高峰
+  - id: R6_deshui
+    name: 得水·湾环曲折
+    computable: partial      # DEM 汇流近似水系；大河与湖泊需外部水文数据
+    quote: "洋潮汪汪，水格之富。湾环曲折，水格之贵。直流直去，下贱无比"
+    source: 博山篇/004论水.md
+    also:
+      - "抱身则贵其弯如牛角样 — 雪心赋/003论水法.md"
+      - "水才过穴而反跳，一文不值 — 雪心赋/003论水法.md"
+      - "风水之法，得水为上 — 葬经/000气感篇.md"
+    metric: |
+      d_water 分段隶属；sinuosity(穴前 2km 河段) 越高越贵；
+      穴位于河道凹岸=环抱(+)，凸岸=反跳(−)
+  - id: R7_shuikou_guansuo
+    name: 水口关锁
+    computable: full
+    quote: "所贵者五户闭藏，所爱者三门宽阔" / "水口则爱其紧如葫芦喉"
+    source: 雪心赋/003论水法.md
+    also:
+      - "龙若住，水口狭。若不住，便宽阔 — 博山篇/004论水.md"
+      - "入山寻水口…重重关锁，缠护周密 — 葬经翼/009水口.md"
+    metric: |
+      沿汇流方向下溯 2–3km 找谷最窄处：
+        lock = 堂内谷宽 / 水口谷宽      # >1 为关锁，越大越紧
+      「三门宽阔」→ 上游来水段谷宽应大于水口宽
+  - id: R8_zangfeng
+    name: 藏风
+    computable: full
+    quote: "气乘风则散，界水则止。古人聚之使不散，行之使有止，故谓之风水"
+    source: 葬经/000气感篇.md
+    metric: |
+      TPI = h0 − mean(h, r≤500m)            # 负值为局部凹地，利藏风
+      barrier = 36 个方位中天际线仰角 > 2° 的方位占比
+    note: 平支模式下本项权重压到 0.03（见 weights.mode_switch）
+  - id: R9_longmai
+    name: 来龙·顾祖者远为优
+    computable: partial
+    quote: "顾祖者远为优，近不知，何以故?远者龙长得水为多，近者龙短得水为少"
+    source: 博山篇/001论龙.md
+    also: ["势来形止…千尺为势，百尺为形 — 葬经/001因势篇.md"]
+    metric: 自穴沿山脊上溯至局部主峰的路径长度（本版仅在 3km 窗口内测，为下限估计）
+
+# ── 凶格：乘性折减（不是减分，是打折）─────────────────────────
+# 依据：穴病篇把这些叫「病」，「法不可葬」——一个致命病能废掉整个穴，加法模型做不到
+faults:
+  - id: F1_juzhi
+    name: 元武拒尸
+    quote: "元武拒尸者，星峰无降势也"
+    source: 葬经翼/003穴病.md
+    trigger: descent <= 0 且 backing > 30m       # 后山高但不垂头
+    penalty: 0.25
+  - id: F2_zhuizu
+    name: 坠足（星峰上压）
+    quote: "穴有坠足者，脉从足出，星峰上压，生气不舒也"
+    source: 葬经翼/003穴病.md
+    trigger: 后方 0–300m 内高差 > 150m
+    penalty: 0.20
+  - id: F3_zhebi
+    name: 折臂（龙虎凹折，外风不蔽）
+    quote: "穴有折臂者，龙虎夹辅，当穴凹折，外风不蔽，生气内散也"
+    source: 葬经翼/003穴病.md
+    trigger: 左或右扇区天际线出现宽度 > 30° 且仰角低于该侧中位数一半的缺口
+    penalty: 0.15
+  - id: F4_gejiao
+    name: 割脚
+    quote: "穴有割脚者，形势虽正，水洗洇褥，扫割无余，生气已荡也"
+    source: 葬经翼/003穴病.md
+    also: ["穴前割脚的…皆从凶论 — 博山篇/004论水.md"]
+    trigger: d_water < 50m
+    penalty: 0.20
+  - id: F5_fantiao
+    name: 反跳（过穴反背）
+    quote: "水才过穴而反跳，一文不值"
+    source: 雪心赋/003论水法.md
+    also: ["朱雀腾去者，水倾反而朝斜背也 — 葬经翼/003穴病.md"]
+    trigger: 穴位于河道凸岸且曲率显著
+    penalty: 0.20
+  - id: F6_pomian
+    name: 破面
+    quote: "穴有破面者，星体虽端，面则流破，一如浪痕，皮崩肉裂，生气无傅也"
+    source: 葬经翼/003穴病.md
+    trigger: 穴周 300m 坡面粗糙度(TRI) 处于区域 P90 以上
+    penalty: 0.12
+  - id: F7_gaoya
+    name: 高压穴（虎蹲龙踞）
+    quote: "虎蹲者，形反而凶僭且逼也；龙踞者，势凌而压强且窜也"
+    source: 葬经翼/003穴病.md
+    also: ["砂砂有杀…高压穴的，皆凶相也 — 博山篇/003论砂.md"]
+    trigger: 左或右砂仰角 > 30°
+    penalty: 0.15
+
+# ── 读到但本版算不了的（诚实登记，不假装实现）───────────────
+not_implemented:
+  - {item: 窝钳乳突四穴形, quote: "凡真穴必有圆动处，窝钳之圆在顶，乳之圆在下，突之圆在中", source: 葬经翼/001察形.md, why: 米级微地形，30m DEM 不可见}
+  - {item: 小明堂（可容一人侧卧）, quote: "微茫界合处，可容一人侧卧，名小明堂", source: 葬经翼/007明堂.md, why: 同上}
+  - {item: 五星九星山体形态, quote: "火言其锐也，水言其波也，木言其直也，金言其圆也，土言其方也", source: 葬经翼/000原势.md, why: 需山体分割+形态分类，非本版标量指标可覆盖}
+  - {item: 龙的剥换过峡, quote: "何名峡山?断续这处是。两山相夹为吉，风吹水射峡为凶", source: 博山篇/001论龙.md, why: 需完整山脊网络提取，超出 3km 窗口}
+  - {item: 三门/五户的完整罗城, quote: "必祖龙开障，展作罗城…重重关锁", source: 葬经翼/009水口.md, why: 需 10–50km 尺度流域分析}
+  - {item: 水的色味气, quote: "认气尝水，其色碧，其味甘，其气香，主上贵", source: 博山篇/004论水.md, why: 非遥感可得}
+  - {item: 一切理气（方位吉凶、五行生克、九星）, quote: "一白好，五黄好…二黑宜忌", source: 博山篇/005论明堂.md, why: 属理气派，本引擎口径外}

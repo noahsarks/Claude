@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+# DEM 瓦片体积大且可复现下载，不入库
+fengshui/dem/
+*.tif
