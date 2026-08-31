@@ -94,6 +94,9 @@ class Region:
         cell_km2 = (self.cdx * self.cdy) / 1e6
         self.stream = self.acc * cell_km2 > 2.0          # 汇水 >2 km² 视为水道
         self.stream_rc = np.argwhere(self.stream)
+        # 河流等级用汇水面积代替 Strahler（单调等价，且无需遍历河网拓扑）
+        # 无定河实证：6~7 级干流遗址密度 842.9，3~5 级 252.3，1~2 级 85.2 处/10^4km
+        self.acc_km2 = self.acc * cell_km2
 
     def crc(self, lat, lon):
         return (self.north - lat) / (RES * self.cf), (lon - self.west) / (RES * self.cf)
@@ -236,6 +239,17 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
 
     # F6 破面：坡面粗糙度
     M["tri"] = float(np.std(h[(dist <= 300)]))
+    # 地貌类型 —— 无定河实证中排第一位的因子（黄土丘陵密度 182.6 vs 山地 25.3
+    # vs 洪积平原 18.9 处/10^4km²）。此处按 3km 起伏度 + 局部坡度 + 粗糙度粗分四类。
+    loc = dist <= 1000
+    slope_loc = float(np.mean(np.degrees(np.arctan(np.hypot(*np.gradient(
+        h, RES*M_PER_DEG_LAT, RES*reg.mx))))[loc])) if loc.sum() > 20 else 0.0
+    M["slope_local"] = slope_loc
+    r3 = M["relief_3km"]
+    if r3 >= 400 and slope_loc >= 12:        M["landform"] = "山地"
+    elif r3 < 120 and slope_loc < 6:         M["landform"] = "平原"
+    elif r3 >= 150 and M["tri"] > 0.055 * r3: M["landform"] = "破碎沟壑"
+    else:                                    M["landform"] = "丘陵台塬"
 
     # 《葬经》五不葬 —— 过山：「气以势止」。原文注给的操作判据是
     # 「没有诸水会聚、群砂聚集」，故按此二者判定，而非自拟坡度比。
@@ -300,11 +314,21 @@ def _flank_water(reg, lat, lon, theta):
 
 
 def _water(reg, lat, lon, h0, theta):
-    out = {"d_water": 9999.0, "bank": 0.0, "sinuosity": 1.0, "lock": 1.0}
+    out = {"d_water": 9999.0, "bank": 0.0, "sinuosity": 1.0, "lock": 1.0,
+           "dh_water": 999.0, "river_km2": 0.0}
     if reg.stream_rc.size == 0: return out
     cr, cc = reg.crc(lat, lon)
     d = np.hypot((reg.stream_rc[:, 0] - cr) * reg.cdy, (reg.stream_rc[:, 1] - cc) * reg.cdx)
     i = int(np.argmin(d)); out["d_water"] = float(d[i])
+    pr0, pc0 = reg.stream_rc[i]
+    # 《无定河》实证：距河流垂直距离 <40 m 者占 213/293，比水平距离更具区分度。
+    # 这同时是"二级阶地"的可计算代理——洛阳盆地二里头/偃师商城/周王城/汉魏故城/
+    # 隋唐洛阳城五座都邑均位于二级阶地上。
+    out["dh_water"] = float(h0 - reg.fill[pr0, pc0])
+    # 河流等级：取 1.5 km 内最大汇水面积代表本地水系级别
+    dm = d < 1500
+    if dm.any():
+        out["river_km2"] = float(max(reg.acc_km2[r, c] for r, c in reg.stream_rc[dm]))
     if d[i] > 6000: return out
     pr, pc = reg.stream_rc[i]
     # 沿河道上下游各走 ~1.2km，取通道点列
@@ -369,7 +393,9 @@ def _water(reg, lat, lon, h0, theta):
     return out
 
 # ── 评分 ──────────────────────────────────────────────────────
-W_MOUNT = dict(water=.22, water_gate=.10, mingtang=.18, xuanwu=.16, hulong=.12, xiangbei=.12, zangfeng=.10)
+# 注：v0.3 未设独立"向阳"项。《无定河》实证显示坡向对聚落选址无显著倾向，
+# 且作者用多角度光照模拟证明该流域阴坡实际同样受光充足，坡向与光照关联度很低。
+W_MOUNT = dict(water=.24, water_gate=.09, mingtang=.18, xuanwu=.15, hulong=.11, xiangbei=.12, zangfeng=.11)
 W_PLAIN = dict(water=.34, water_gate=.14, mingtang=.22, xuanwu=.08, hulong=.06, xiangbei=.13, zangfeng=.03)
 
 def score(M):
@@ -396,9 +422,13 @@ def score(M):
                + .4*pl(M["chao_ang"], [(0,.2),(1,.7),(3,1),(10,.8),(20,.5)]))
     c["mingtang"] = .60*inner + .40*outer
     bank = {1.0:1.0, -1.0:.15, 0.0:.6}[M["bank"]]
-    c["water"] = .40*pl(M["d_water"], [(0,.10),(50,.35),(120,1),(800,1),(2000,.45),(4000,.15),(8000,0)]) \
-               + .25*bank + .20*pl(M["sinuosity"], [(1.0,.2),(1.1,.5),(1.3,1),(3,1)]) \
-               + .15*M.get("flank_water", 0.0)          # 真龙「两水相夹送」
+    # 水平距离隶属函数按《无定河》实证重标定：<300m 密度 376.7、300-600m 153.7、
+    # >600m 21.9 —— 实证是"越近越好"，原 v0.2 的 120-800m 平顶偏离实证。
+    c["water"] = .28*pl(M["d_water"], [(0,.55),(60,.85),(300,1),(600,.65),(1200,.35),(3000,.12),(8000,0)]) \
+               + .20*bank + .14*pl(M["sinuosity"], [(1.0,.2),(1.1,.5),(1.3,1),(3,1)]) \
+               + .12*M.get("flank_water", 0.0) \
+               + .16*pl(M.get("dh_water",999), [(-5,.2),(3,.7),(15,1),(40,1),(90,.55),(180,.2),(400,0)]) \
+               + .10*pl(M.get("river_km2",0), [(0,.1),(5,.35),(50,.7),(300,1),(5000,1)])
     c["water_gate"] = pl(M["lock"], [(0.5,.1),(1,.2),(1.5,.5),(2.5,.85),(4,1),(20,1)])
     c["zangfeng"] = .5*pl(M["tpi"], [(-120,1),(-20,1),(0,.7),(20,.4),(60,.15),(150,0)]) \
                   + .5*pl(M["barrier"], [(0,0),(.3,.4),(.6,.85),(.85,1)])
