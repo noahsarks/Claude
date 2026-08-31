@@ -186,10 +186,8 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     M["back_rise_300"] = float(prof[10] - prof[0])
 
     # R2 龙虎
-    # 贴身龙虎(形) 与 外龙虎/水口砂(势)：明十三陵龙山虎山在陵前 6 km，贴身砂仅数百米
-    M["L_rise"], M["R_rise"] = sec(left, 200, 1200), sec(right, 200, 1200)
-    M["L_ang"],  M["R_ang"]  = ang(left, 200, 1200), ang(right, 200, 1200)
-    M["Lout"],   M["Rout"]   = sec(left, 2000, 6000), sec(right, 2000, 6000)
+    M["L_rise"], M["R_rise"] = sec(left, 200, 2000), sec(right, 200, 2000)
+    M["L_ang"], M["R_ang"] = ang(left, 200, 2000), ang(right, 200, 2000)
     # 折臂：左右各 8 个方位的仰角序列是否有深缺口
     gaps = []
     for base in ((theta + 90) % 360, (theta - 90) % 360):
@@ -221,8 +219,6 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     M["front_open"] = ang(front, 200, 1200)
     M["an_ang"] = ang(front, 300, 2000)
     M["chao_ang"] = ang(front, 2000, 6000)
-    of = front & (dist >= 2000) & (dist <= 6000)      # 案外大堂：规模宏阔
-    M["outer_open"] = float(np.mean(np.degrees(np.arctan2(np.clip(h[of]-h0,0,None), dist[of])))) if of.sum() > 20 else 0.0
 
     # R8 藏风
     near = dist <= 500
@@ -237,67 +233,9 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     # F6 破面：坡面粗糙度
     M["tri"] = float(np.std(h[(dist <= 300)]))
 
-    # 《葬经》五不葬 —— 过山：「气以势止」。原文注给的操作判据是
-    # 「没有诸水会聚、群砂聚集」，故按此二者判定，而非自拟坡度比。
-    sg = []
-    for k in range(24):
-        b = k * 15.0
-        m2 = (dist >= 300) & (dist <= 1500) & (np.abs(bearing_diff(brg, b)) <= 7.5)
-        sg.append(1 if (m2.sum() > 5 and np.percentile(h[m2], 75) - h0 > 15) else 0)
-    M["sand_gather"] = float(np.mean(sg))            # 群砂聚集
-    # 独山：「气以龙会」，无过脉与外相连者不可葬
-    # 判据：1.5–3 km 环带上，高于穴 30 m 的方位占比（有脉相连则不止一个方向高）
-    rr2 = (dist >= 1500) & (dist <= 3000)
-    conn = []
-    for k in range(24):
-        b = k * 15.0
-        m2 = rr2 & (np.abs(bearing_diff(brg, b)) <= 7.5)
-        conn.append(1 if (m2.sum() > 5 and np.percentile(h[m2], 75) - h0 > 30) else 0)
-    M["ridge_conn"] = float(np.mean(conn))          # 独山 → 接近 0
-    # 真龙「两水相夹送」：来龙方位两侧各 60° 内是否都有水道
-    M["flank_water"] = 0.0
-
     # R6/R7 水
     M.update(_water(reg, lat, lon, h0, theta))
-    M["flank_water"] = _flank_water(reg, lat, lon, theta)
-    M["water_converge"] = _converge(reg, lat, lon)
     return M
-
-def _converge(reg, lat, lon, R=2000.0):
-    """诸水会聚：R 内汇流点（两条上游支流交汇）的个数。"""
-    if reg.stream_rc.size == 0: return 0.0
-    cr, cc = reg.crc(lat, lon)
-    d = np.hypot((reg.stream_rc[:,0]-cr)*reg.cdy, (reg.stream_rc[:,1]-cc)*reg.cdx)
-    n = 0
-    for (r, c) in reg.stream_rc[d < R]:
-        ups = 0
-        for dr in (-1,0,1):
-            for dc in (-1,0,1):
-                if dr == dc == 0: continue
-                nr, nc = r+dr, c+dc
-                if not (0 <= nr < reg.d8.shape[0] and 0 <= nc < reg.d8.shape[1]): continue
-                k = reg.d8[nr, nc]
-                if k < 0: continue
-                if (nr+reg.offs[k][0], nc+reg.offs[k][1]) == (r, c) and reg.acc[nr, nc]*(reg.cdx*reg.cdy/1e6) > 0.5: ups += 1
-        if ups >= 2: n += 1
-    return float(n)
-
-
-def _flank_water(reg, lat, lon, theta):
-    """《寻龙》真龙气脉必有两水相夹送：来龙轴线左右两侧 3 km 内是否各有水道。"""
-    if reg.stream_rc.size == 0: return 0.0
-    cr, cc = reg.crc(lat, lon)
-    dy = (reg.stream_rc[:, 0] - cr) * reg.cdy * -1.0
-    dx = (reg.stream_rc[:, 1] - cc) * reg.cdx
-    d = np.hypot(dx, dy)
-    sel = d < 3000
-    if sel.sum() == 0: return 0.0
-    b = (np.degrees(np.arctan2(dx[sel], dy[sel]))) % 360
-    rel = (b - theta + 180) % 360 - 180
-    left  = ((rel > 20) & (rel < 160)).any()
-    right = ((rel < -20) & (rel > -160)).any()
-    return float(left) * 0.5 + float(right) * 0.5
-
 
 def _water(reg, lat, lon, h0, theta):
     out = {"d_water": 9999.0, "bank": 0.0, "sinuosity": 1.0, "lock": 1.0}
@@ -373,69 +311,36 @@ W_MOUNT = dict(water=.22, water_gate=.10, mingtang=.18, xuanwu=.16, hulong=.12, 
 W_PLAIN = dict(water=.34, water_gate=.14, mingtang=.22, xuanwu=.08, hulong=.06, xiangbei=.13, zangfeng=.03)
 
 def score(M):
-    """《葬经》「千尺为势，百尺为形，势与形顺者吉，势与形逆者凶。
-    势凶形吉，百福希一。势吉形凶，祸不旋日」——势与形是乘性关系，不是加权和。"""
     if M is None: return None
     c = {}
     c["xuanwu"] = .45*pl(M["backing"], [(-50,0),(0,.12),(50,1),(300,1),(800,.55),(1500,.3)]) \
                 + .30*pl(M["back_slope_near"], [(0,.2),(3,.8),(8,1),(20,1),(30,.5),(45,.1)]) \
                 + .25*pl(M["back_mono"], [(.5,0),(.75,.5),(.92,1)])
-    # 龙虎双尺度：贴身砂(形) 七成，外龙虎/水口砂(势) 三成
-    near_hu = .40*pl(min(M["L_rise"], M["R_rise"]), [(-30,0),(0,.25),(30,.8),(120,1),(500,1)]) \
-            + .35*(1 - abs(M["L_rise"]-M["R_rise"]) / max(abs(M["L_rise"]), abs(M["R_rise"]), 1.0)) \
-            + .25*pl(max(M["L_ang"], M["R_ang"]), [(0,.4),(5,1),(18,1),(30,.3),(45,0)])
-    out_hu  = pl(min(M["Lout"], M["Rout"]), [(-100,0),(0,.3),(50,.7),(200,1),(900,1)])
-    c["hulong"] = .70*near_hu + .30*out_hu
+    c["hulong"] = .40*pl(min(M["L_rise"], M["R_rise"]), [(-30,0),(0,.25),(30,.8),(120,1),(500,1)]) \
+                + .35*(1 - abs(M["L_rise"]-M["R_rise"]) / max(abs(M["L_rise"]), abs(M["R_rise"]), 1.0)) \
+                + .25*pl(max(M["L_ang"], M["R_ang"]), [(0,.4),(5,1),(18,1),(30,.3),(45,0)])
     c["xiangbei"] = pl(M["facing_ratio"], [(.30,0),(.50,.40),(.65,.85),(.80,1)])
-    # 明堂两层：案内明堂 + 案外大堂（清东陵相度档案「案内明堂舒畅开阳，案外大堂规模宏阔」）
-    inner = .30*pl(M["front_slope"], [(0,1),(6,1),(15,.4),(30,0)]) \
-          + .25*pl(M["front_drop"], [(-50,0),(0,.5),(10,1),(150,1)]) \
-          + .45*pl(M["front_open"], [(0,.45),(1,.8),(3,1),(8,.7),(15,.25),(25,0)])
-    outer = .55*pl(M["outer_open"], [(0,.3),(1,.8),(3,1),(9,.6),(18,.2)]) \
-          + .45*(.6*pl(M["an_ang"], [(0,0),(1.5,.5),(3,1),(8,1),(15,.4),(25,0)])
-               + .4*pl(M["chao_ang"], [(0,.2),(1,.7),(3,1),(10,.8),(20,.5)]))
-    c["mingtang"] = .60*inner + .40*outer
+    c["mingtang"] = .25*pl(M["front_slope"], [(0,1),(6,1),(15,.4),(30,0)]) \
+                  + .20*pl(M["front_drop"], [(-50,0),(0,.5),(10,1),(150,1)]) \
+                  + .25*pl(M["front_open"], [(0,.45),(1,.8),(3,1),(8,.7),(15,.25),(25,0)]) \
+                  + .30*(.6*pl(M["an_ang"], [(0,0),(1.5,.5),(3,1),(8,1),(15,.4),(25,0)])
+                       + .4*pl(M["chao_ang"], [(0,.2),(1,.7),(3,1),(10,.8),(20,.5)]))
     bank = {1.0:1.0, -1.0:.15, 0.0:.6}[M["bank"]]
-    c["water"] = .40*pl(M["d_water"], [(0,.10),(50,.35),(120,1),(800,1),(2000,.45),(4000,.15),(8000,0)]) \
-               + .25*bank + .20*pl(M["sinuosity"], [(1.0,.2),(1.1,.5),(1.3,1),(3,1)]) \
-               + .15*M.get("flank_water", 0.0)          # 真龙「两水相夹送」
+    c["water"] = .45*pl(M["d_water"], [(0,.10),(50,.35),(120,1),(800,1),(2000,.45),(4000,.15),(8000,0)]) \
+               + .30*bank + .25*pl(M["sinuosity"], [(1.0,.2),(1.1,.5),(1.3,1),(3,1)])
     c["water_gate"] = pl(M["lock"], [(0.5,.1),(1,.2),(1.5,.5),(2.5,.85),(4,1),(20,1)])
     c["zangfeng"] = .5*pl(M["tpi"], [(-120,1),(-20,1),(0,.7),(20,.4),(60,.15),(150,0)]) \
                   + .5*pl(M["barrier"], [(0,0),(.3,.4),(.6,.85),(.85,1)])
     mode = "plain" if M["relief_3km"] < 120 else "mountain"
     W = W_PLAIN if mode == "plain" else W_MOUNT
-    for k in W: c[k] = min(max(c[k], 0), 1)
-
-    # ── 势 与 形 ──────────────────────────────────────────────
-    # 势(千尺)：玄武、外龙虎/外堂、水口关锁；形(百尺)：内明堂、贴身龙虎、得水、向背
-    shi  = (.45*c["xuanwu"] + .25*outer + .30*c["water_gate"])
-    xing = (.35*inner + .30*near_hu + .20*c["water"] + .15*c["xiangbei"])
-    base = sum(W[k]*c[k] for k in W)
-    # 「势与形逆者凶」：失配惩罚，且不对称——「势凶形吉，百福希一」重于「势吉形凶」
-    gap = shi - xing
-    if gap < 0:   mism = 1 - min(1.0, (-gap) * 1.30)     # 势凶形吉：罚重
-    else:         mism = 1 - min(1.0, gap * 0.75)        # 势吉形凶：罚轻
-    mism = max(mism, 0.15)
-
-    # ── 凶格 ──────────────────────────────────────────────────
-    # 《葬经》四势「形势反此，法当破死」——否决级，故系数远重于一般扣分
+    base = sum(W[k] * min(max(c[k], 0), 1) for k in W)
     F = {}
-    if M["back_dip"] > 40:                          F["拒尸(玄武不垂)"] = .40
-    if M["bank"] < 0 and M["d_water"] < 800 and M["sinuosity"] > 1.15:
-                                                    F["腾去(朱雀不舞)"] = .40
-    if M["R_ang"] > 30:                             F["衔尸(虎蹲)"] = .35
-    if M["L_ang"] > 30:                             F["嫉主(龙踞)"] = .35
-    # 《葬经》五不葬「童断石过独，生新凶，消已福」
-    if M["back_rise_300"] > 150:                    F["断山(坠足)"] = .25
-    # 五不葬原文为「山之不可葬者五」，只适用于山陇；《葬经》另云「平原无山只看水」，
-    # 故平洋模式下不判过山/独山——平原本无山可言。
-    if mode == "mountain":
-        if M.get("sand_gather",1) < .25 and M.get("water_converge",1) < 1:
-                                                    F["过山(势未止)"] = .30
-        if M.get("ridge_conn",1) < .15:             F["独山(气不会)"] = .35
-    if M["gap_ratio"] >= 0.30:                      F["折臂"] = .15
-    if M["d_water"] < 50:                           F["割脚"] = .20
+    if M["back_dip"] > 40:                      F["F1_拒尸"] = .25
+    if M["back_rise_300"] > 150:                F["F2_坠足"] = .20
+    if M["gap_ratio"] >= 0.30:                  F["F3_折臂"] = .15
+    if M["d_water"] < 50:                       F["F4_割脚"] = .20
+    if M["bank"] < 0 and M["d_water"] < 800 and M["sinuosity"] > 1.15: F["F5_反跳"] = .20
+    if max(M["L_ang"], M["R_ang"]) > 30:        F["F7_高压"] = .15
     disc = 1.0
     for v in F.values(): disc *= (1 - v)
-    return dict(components=c, mode=mode, base=base, shi=shi, xing=xing,
-                mismatch=mism, faults=F, final=base*mism*disc)
+    return dict(components=c, mode=mode, base=base, faults=F, final=base * disc)
