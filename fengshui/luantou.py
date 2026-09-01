@@ -117,7 +117,9 @@ def bearing_diff(b, ref):
     return (b - ref + 180) % 360 - 180
 
 # ── 单点指标 ──────────────────────────────────────────────────
-def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
+def metrics(reg, lat, lon, R=6000.0, theta_deg=None, scale=1.0):
+    S = float(scale)                 # 尺度因子：所有分析环带按此缩放
+    R = R * S                        # 窗口随之放大
     npix_lat = int(R / (RES * M_PER_DEG_LAT)) + 2
     npix_lon = int(R / (RES * reg.mx)) + 2
     r0, c0 = reg.rc(lat, lon)
@@ -146,7 +148,7 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
 
     # 坐山方向：0.3–2.5km 内高出穴部分的质量方向
     # 《葬经翼》「开面降势方名元武垂头」：来脉 = 上升最连贯、中途无凹断的方位
-    rr_ = np.arange(0, 2401, 30.0)
+    rr_ = np.arange(0, 2401*S, 30.0*S)
     ths = np.arange(0, 360, 10.0)
     LA = lat + np.cos(np.radians(ths))[:, None] * rr_[None, :] / M_PER_DEG_LAT
     LO = lon + np.sin(np.radians(ths))[:, None] * rr_[None, :] / reg.mx
@@ -156,7 +158,7 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     firstbrk = np.where(broken.any(1), broken.argmax(1), len(rr_))
     gain = np.array([runm[i, max(firstbrk[i] - 1, 0)] - h0 for i in range(len(ths))])
     if gain.max() < 30.0:                            # 平洋无脉可寻，退回高程质心
-        band = (dist >= 300) & (dist <= 4000)
+        band = (dist >= 300*S) & (dist <= 4000*S)
         wgt = np.clip(h - h0, 0, None) * band
         if wgt.sum() < 1e-6:
             theta = 0.0
@@ -185,8 +187,8 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
         return float(np.percentile(np.degrees(np.arctan2(np.clip(h[m] - h0, 0, None), dist[m])), q))
 
     # R1 玄武垂头
-    M["backing"] = sec(back, 300, 4000)
-    prof_r = np.arange(0, 2001, 30.0)
+    M["backing"] = sec(back, 300*S, 4000*S)
+    prof_r = np.arange(0, 2001*S, 30.0*S)
     # 剖面沿 θ 及 θ±10° 三线平均，抑制单线采样抖动
     _p = []
     for _dt in (-10.0, 0.0, 10.0):
@@ -195,27 +197,27 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
         _lo = lon + np.sin(math.radians(_th)) * prof_r / reg.mx
         _p.append(reg.sample(_la, _lo))
     prof = np.mean(_p, axis=0)
-    M["back_slope_near"] = float(np.degrees(np.arctan((prof[10] - prof[0]) / 300.0)))
+    M["back_slope_near"] = float(np.degrees(np.arctan((prof[10] - prof[0]) / (300.0*S))))
     top = int(np.argmax(prof))                          # 靠山主峰在剖面上的位置
     seg = prof[:top + 1] if top >= 3 else prof[:4]
     run = np.maximum.accumulate(seg)
     M["back_dip"] = float(np.max(run - seg))            # 只量穴到主峰之间的凹断
     M["back_mono"] = float((np.diff(seg) >= -1.0).mean())
-    M["back_top_m"] = float(top * 30.0)
+    M["back_top_m"] = float(top * 30.0 * S)
     M["back_rise_300"] = float(prof[10] - prof[0])
 
     # R2 龙虎
     # 贴身龙虎(形) 与 外龙虎/水口砂(势)：明十三陵龙山虎山在陵前 6 km，贴身砂仅数百米
-    M["L_rise"], M["R_rise"] = sec(left, 200, 1200), sec(right, 200, 1200)
-    M["L_ang"],  M["R_ang"]  = ang(left, 200, 1200), ang(right, 200, 1200)
-    M["Lout"],   M["Rout"]   = sec(left, 2000, 6000), sec(right, 2000, 6000)
+    M["L_rise"], M["R_rise"] = sec(left, 200*S, 1200*S), sec(right, 200*S, 1200*S)
+    M["L_ang"],  M["R_ang"]  = ang(left, 200*S, 1200*S), ang(right, 200*S, 1200*S)
+    M["Lout"],   M["Rout"]   = sec(left, 2000*S, 6000*S), sec(right, 2000*S, 6000*S)
     # 折臂：左右各 8 个方位的仰角序列是否有深缺口
     gaps = []
     for base in ((theta + 90) % 360, (theta - 90) % 360):
         seq = []
         for k in range(-3, 4):
             b = (base + k * 12) % 360
-            m = (np.abs(bearing_diff(brg, b)) <= 6) & (dist >= 200) & (dist <= 2000)
+            m = (np.abs(bearing_diff(brg, b)) <= 6) & (dist >= 200*S) & (dist <= 2000*S)
             seq.append(float(np.percentile(np.degrees(np.arctan2(np.clip(h[m]-h0,0,None), dist[m])),97)) if m.sum() > 5 else 0.0)
         seq = np.array(seq); med = np.median(seq)
         gaps.append(float((seq < med * 0.5).sum() / len(seq)) if med > 0.5 else 0.0)
@@ -226,39 +228,39 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     aN, aE = gy, -gx                      # 坡面下降方向（朝向低处）
     toN, toE = -dN / np.maximum(dist, 1), -dE / np.maximum(dist, 1)   # 指向穴
     dot = (aN * toN + aE * toE) / np.maximum(np.hypot(aN, aE), 1e-6)
-    ring2 = (dist >= 300) & (dist <= 3000)
+    ring2 = (dist >= 300*S) & (dist <= 3000*S)
     M["facing_ratio"] = float((dot[ring2] > 0).mean()) if ring2.sum() > 50 else 0.5
 
     # R4 明堂
-    mf = front & (dist >= 100) & (dist <= 800)
+    mf = front & (dist >= 100*S) & (dist <= 800*S)
     if mf.sum() > 20:
         gmag = np.degrees(np.arctan(np.hypot(gy, gx)))
         M["front_slope"] = float(np.mean(gmag[mf]))
         M["front_drop"] = h0 - float(np.median(h[mf]))
     else:
         M["front_slope"], M["front_drop"] = 20.0, -50.0
-    M["front_open"] = ang(front, 200, 1200)
-    M["an_ang"] = ang(front, 300, 2000)
-    M["chao_ang"] = ang(front, 2000, 6000)
-    of = front & (dist >= 2000) & (dist <= 6000)      # 案外大堂：规模宏阔
+    M["front_open"] = ang(front, 200*S, 1200*S)
+    M["an_ang"] = ang(front, 300*S, 2000*S)
+    M["chao_ang"] = ang(front, 2000*S, 6000*S)
+    of = front & (dist >= 2000*S) & (dist <= 6000*S)      # 案外大堂：规模宏阔
     M["outer_open"] = float(np.mean(np.degrees(np.arctan2(np.clip(h[of]-h0,0,None), dist[of])))) if of.sum() > 20 else 0.0
 
     # R8 藏风
     hs = ndimage.uniform_filter(h, size=3)      # 轻度低通，仅用于 TPI 与粗糙度
-    near = dist <= 500
+    near = dist <= 500*S
     M["tpi"] = h0 - float(np.mean(hs[near]))
     bar = []
     for k in range(36):
         b = k * 10.0
-        m = (np.abs(bearing_diff(brg, b)) <= 5) & (dist >= 100) & (dist <= 3000)
+        m = (np.abs(bearing_diff(brg, b)) <= 5) & (dist >= 100*S) & (dist <= 3000*S)
         bar.append(float(np.percentile(np.degrees(np.arctan2(np.clip(h[m]-h0,0,None), dist[m])),97)) if m.sum() > 5 else 0.0)
     M["barrier"] = float((np.array(bar) > 2.0).mean())
 
     # F6 破面：坡面粗糙度
-    M["tri"] = float(np.std(hs[(dist <= 300)]))
+    M["tri"] = float(np.std(hs[(dist <= 300*S)]))
     # 地貌类型 —— 无定河实证中排第一位的因子（黄土丘陵密度 182.6 vs 山地 25.3
     # vs 洪积平原 18.9 处/10^4km²）。此处按 3km 起伏度 + 局部坡度 + 粗糙度粗分四类。
-    loc = dist <= 1000
+    loc = dist <= 1000*S
     slope_loc = float(np.mean(np.degrees(np.arctan(np.hypot(*np.gradient(
         h, RES*M_PER_DEG_LAT, RES*reg.mx))))[loc])) if loc.sum() > 20 else 0.0
     M["slope_local"] = slope_loc
@@ -273,12 +275,12 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     sg = []
     for k in range(24):
         b = k * 15.0
-        m2 = (dist >= 300) & (dist <= 1500) & (np.abs(bearing_diff(brg, b)) <= 7.5)
+        m2 = (dist >= 300*S) & (dist <= 1500*S) & (np.abs(bearing_diff(brg, b)) <= 7.5)
         sg.append(1 if (m2.sum() > 5 and np.percentile(h[m2], 75) - h0 > 15) else 0)
     M["sand_gather"] = float(np.mean(sg))            # 群砂聚集
     # 独山：「气以龙会」，无过脉与外相连者不可葬
     # 判据：1.5–3 km 环带上，高于穴 30 m 的方位占比（有脉相连则不止一个方向高）
-    rr2 = (dist >= 1500) & (dist <= 3000)
+    rr2 = (dist >= 1500*S) & (dist <= 3000*S)
     conn = []
     for k in range(24):
         b = k * 15.0
@@ -289,9 +291,9 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     M["flank_water"] = 0.0
 
     # R6/R7 水
-    M.update(_water(reg, lat, lon, h0, theta))
-    M["flank_water"] = _flank_water(reg, lat, lon, theta)
-    M["water_converge"] = _converge(reg, lat, lon)
+    M.update(_water(reg, lat, lon, h0, theta, S))
+    M["flank_water"] = _flank_water(reg, lat, lon, theta, S)
+    M["water_converge"] = _converge(reg, lat, lon, 2000.0*S)
     return M
 
 def _converge(reg, lat, lon, R=2000.0):
@@ -314,14 +316,14 @@ def _converge(reg, lat, lon, R=2000.0):
     return float(n)
 
 
-def _flank_water(reg, lat, lon, theta):
+def _flank_water(reg, lat, lon, theta, S=1.0):
     """《寻龙》真龙气脉必有两水相夹送：来龙轴线左右两侧 3 km 内是否各有水道。"""
     if reg.stream_rc.size == 0: return 0.0
     cr, cc = reg.crc(lat, lon)
     dy = (reg.stream_rc[:, 0] - cr) * reg.cdy * -1.0
     dx = (reg.stream_rc[:, 1] - cc) * reg.cdx
     d = np.hypot(dx, dy)
-    sel = d < 3000
+    sel = d < 3000*S
     if sel.sum() == 0: return 0.0
     b = (np.degrees(np.arctan2(dx[sel], dy[sel]))) % 360
     rel = (b - theta + 180) % 360 - 180
@@ -330,7 +332,7 @@ def _flank_water(reg, lat, lon, theta):
     return float(left) * 0.5 + float(right) * 0.5
 
 
-def _water(reg, lat, lon, h0, theta):
+def _water(reg, lat, lon, h0, theta, S=1.0):
     out = {"d_water": 9999.0, "bank": 0.0, "sinuosity": 1.0, "lock": 1.0,
            "dh_water": 999.0, "river_km2": 0.0}
     if reg.stream_rc.size == 0: return out
@@ -343,10 +345,10 @@ def _water(reg, lat, lon, h0, theta):
     # 隋唐洛阳城五座都邑均位于二级阶地上。
     out["dh_water"] = float(h0 - reg.fill[pr0, pc0])
     # 河流等级：取 1.5 km 内最大汇水面积代表本地水系级别
-    dm = d < 1500
+    dm = d < 1500*S
     if dm.any():
         out["river_km2"] = float(max(reg.acc_km2[r, c] for r, c in reg.stream_rc[dm]))
-    if d[i] > 6000: return out
+    if d[i] > 6000*S: return out
     pr, pc = reg.stream_rc[i]
     # 沿河道上下游各走 ~1.2km，取通道点列
     pts = [(pr, pc)]
