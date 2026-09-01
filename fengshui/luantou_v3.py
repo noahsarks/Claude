@@ -106,13 +106,6 @@ def pl(x, pts):
     xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
     return float(np.interp(x, xs, ys))
 
-def ramp(x, a, b):
-    """软阈值：x 在 a 处为 0、b 处为 1，线性过渡（a>b 时为递减方向）。
-    硬阈值会让擦线的点整份吃下 0.15-0.40 的折减，是分数跳变的来源之一。"""
-    if a == b: return 1.0 if x >= a else 0.0
-    return float(min(1.0, max(0.0, (x - a) / (b - a))))
-
-
 def bearing_diff(b, ref):
     return (b - ref + 180) % 360 - 180
 
@@ -133,10 +126,7 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     dist = np.hypot(dN, dE)
     brg = (np.degrees(np.arctan2(dE, dN))) % 360
     h = np.nan_to_num(win, nan=np.nanmean(win))
-    # v0.4 空间平滑：h0 取 60 m 邻域中位数，而非单像元。
-    # 上限测试显示单像元取值是分数抖动的主因（±100m 位移下 SD=0.024，占效应 57%）。
-    _c = dist <= 60
-    h0 = float(np.median(h[_c])) if _c.sum() >= 4 else float(reg.sample([lat], [lon])[0])
+    h0 = float(reg.sample([lat], [lon])[0])
     M = {}
     M["h0"] = h0
     r3 = (dist > 100) & (dist <= 3000)
@@ -178,23 +168,17 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     def sec(mask, lo, hi, q=75):
         m = mask & (dist >= lo) & (dist <= hi)
         return float(np.percentile(h[m], q)) - h0 if m.sum() > 20 else 0.0
-    def ang(mask, lo, hi, q=97.0):
-        """仰角取 P97 而非 max —— max 由单个噪声像元决定，是抖动的第二大来源。"""
+    def ang(mask, lo, hi):
         m = mask & (dist >= lo) & (dist <= hi)
         if m.sum() < 20: return 0.0
-        return float(np.percentile(np.degrees(np.arctan2(np.clip(h[m] - h0, 0, None), dist[m])), q))
+        return float(np.degrees(np.arctan2(np.clip(h[m] - h0, 0, None), dist[m])).max())
 
     # R1 玄武垂头
     M["backing"] = sec(back, 300, 4000)
     prof_r = np.arange(0, 2001, 30.0)
-    # 剖面沿 θ 及 θ±10° 三线平均，抑制单线采样抖动
-    _p = []
-    for _dt in (-10.0, 0.0, 10.0):
-        _th = theta + _dt
-        _la = lat + np.cos(math.radians(_th)) * prof_r / M_PER_DEG_LAT
-        _lo = lon + np.sin(math.radians(_th)) * prof_r / reg.mx
-        _p.append(reg.sample(_la, _lo))
-    prof = np.mean(_p, axis=0)
+    plat = lat + np.cos(math.radians(theta)) * prof_r / M_PER_DEG_LAT
+    plon = lon + np.sin(math.radians(theta)) * prof_r / reg.mx
+    prof = reg.sample(plat, plon)
     M["back_slope_near"] = float(np.degrees(np.arctan((prof[10] - prof[0]) / 300.0)))
     top = int(np.argmax(prof))                          # 靠山主峰在剖面上的位置
     seg = prof[:top + 1] if top >= 3 else prof[:4]
@@ -216,7 +200,7 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
         for k in range(-3, 4):
             b = (base + k * 12) % 360
             m = (np.abs(bearing_diff(brg, b)) <= 6) & (dist >= 200) & (dist <= 2000)
-            seq.append(float(np.percentile(np.degrees(np.arctan2(np.clip(h[m]-h0,0,None), dist[m])),97)) if m.sum() > 5 else 0.0)
+            seq.append(np.degrees(np.arctan2(np.clip(h[m]-h0,0,None), dist[m])).max() if m.sum() > 5 else 0.0)
         seq = np.array(seq); med = np.median(seq)
         gaps.append(float((seq < med * 0.5).sum() / len(seq)) if med > 0.5 else 0.0)
     M["gap_ratio"] = max(gaps)
@@ -244,18 +228,17 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None):
     M["outer_open"] = float(np.mean(np.degrees(np.arctan2(np.clip(h[of]-h0,0,None), dist[of])))) if of.sum() > 20 else 0.0
 
     # R8 藏风
-    hs = ndimage.uniform_filter(h, size=3)      # 轻度低通，仅用于 TPI 与粗糙度
     near = dist <= 500
-    M["tpi"] = h0 - float(np.mean(hs[near]))
+    M["tpi"] = h0 - float(np.mean(h[near]))
     bar = []
     for k in range(36):
         b = k * 10.0
         m = (np.abs(bearing_diff(brg, b)) <= 5) & (dist >= 100) & (dist <= 3000)
-        bar.append(float(np.percentile(np.degrees(np.arctan2(np.clip(h[m]-h0,0,None), dist[m])),97)) if m.sum() > 5 else 0.0)
+        bar.append(np.degrees(np.arctan2(np.clip(h[m]-h0,0,None), dist[m])).max() if m.sum() > 5 else 0.0)
     M["barrier"] = float((np.array(bar) > 2.0).mean())
 
     # F6 破面：坡面粗糙度
-    M["tri"] = float(np.std(hs[(dist <= 300)]))
+    M["tri"] = float(np.std(h[(dist <= 300)]))
     # 地貌类型 —— 无定河实证中排第一位的因子（黄土丘陵密度 182.6 vs 山地 25.3
     # vs 洪积平原 18.9 处/10^4km²）。此处按 3km 起伏度 + 局部坡度 + 粗糙度粗分四类。
     loc = dist <= 1000
@@ -467,20 +450,21 @@ def score(M):
     # ── 凶格 ──────────────────────────────────────────────────
     # 《葬经》四势「形势反此，法当破死」——否决级，故系数远重于一般扣分
     F = {}
-    def add(name, pen, r):
-        if r > 0.02: F[name] = pen * r
-    add("拒尸(玄武不垂)", .40, ramp(M["back_dip"], 25, 60))
-    if M["bank"] < 0 and M["d_water"] < 800:
-        add("腾去(朱雀不舞)", .40, ramp(M["sinuosity"], 1.08, 1.30))
-    add("衔尸(虎蹲)", .35, ramp(M["R_ang"], 25, 38))
-    add("嫉主(龙踞)", .35, ramp(M["L_ang"], 25, 38))
-    add("断山(坠足)", .25, ramp(M["back_rise_300"], 110, 200))
+    if M["back_dip"] > 40:                          F["拒尸(玄武不垂)"] = .40
+    if M["bank"] < 0 and M["d_water"] < 800 and M["sinuosity"] > 1.15:
+                                                    F["腾去(朱雀不舞)"] = .40
+    if M["R_ang"] > 30:                             F["衔尸(虎蹲)"] = .35
+    if M["L_ang"] > 30:                             F["嫉主(龙踞)"] = .35
+    # 《葬经》五不葬「童断石过独，生新凶，消已福」
+    if M["back_rise_300"] > 150:                    F["断山(坠足)"] = .25
+    # 五不葬原文为「山之不可葬者五」，只适用于山陇；《葬经》另云「平原无山只看水」，
+    # 故平洋模式下不判过山/独山——平原本无山可言。
     if mode == "mountain":
-        if M.get("water_converge", 1) < 1:
-            add("过山(势未止)", .30, ramp(M.get("sand_gather", 1), .35, .12))
-        add("独山(气不会)", .35, ramp(M.get("ridge_conn", 1), .25, .06))
-    add("折臂", .15, ramp(M["gap_ratio"], .20, .42))
-    add("割脚", .20, ramp(M["d_water"], 80, 25))
+        if M.get("sand_gather",1) < .25 and M.get("water_converge",1) < 1:
+                                                    F["过山(势未止)"] = .30
+        if M.get("ridge_conn",1) < .15:             F["独山(气不会)"] = .35
+    if M["gap_ratio"] >= 0.30:                      F["折臂"] = .15
+    if M["d_water"] < 50:                           F["割脚"] = .20
     disc = 1.0
     for v in F.values(): disc *= (1 - v)
     return dict(components=c, mode=mode, base=base, shi=shi, xing=xing,
