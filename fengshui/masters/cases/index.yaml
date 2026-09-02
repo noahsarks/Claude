@@ -1,0 +1,122 @@
+# 案例总表。schema 见 ../README.md
+# evidence: A 第三方独立记录 / B 术者著述 / C 媒体传记 / D 不采信
+
+cases:
+  - id: A01
+    file: A01-陶振成-金诚义新宅.md
+    master: 陶振成
+    date: 2016-09-04
+    place: 浙江武义大溪口村
+    coords_known: false
+    evidence: A
+    source: Ren PhD thesis Ch.5（现场观察）
+    decision_driver: 社会关系（邻里冲突调解）
+    terrain_used: 边缘（仅备选地块判断中出现，且被社会因素压倒）
+    liqi_used: 罗盘读数、仪式尺、择日
+    testable_by_us: false
+    reason: 决策尺度 2.4 m，引擎最细 800 m；核心变量不在 DEM 中
+    yield: "「离居住中心太远则运少」—— 可计算，且方向与我们的引擎相反"
+
+  - id: A02
+    file: A02-陶振成-陈家墓穴.md
+    master: 陶振成
+    date: 2016-09/10
+    place: 溪头村（距金华约 70 km）
+    coords_known: false
+    evidence: A
+    source: Ren PhD thesis Ch.5（现场观察）
+    decision_driver: 前方山的层数（= 5）
+    terrain_used: 决定性
+    liqi_used: 坐向由死者生辰推定（先于踏勘）；下葬时辰
+    testable_by_us: partial
+    reason: 三穴同排同向同尺寸，构成罕见的地形单变量对照；缺坐标
+    yield: "新增指标 ridge_layers（视线方向穿越山脊次数）—— 引擎现无此项"
+
+  - id: A03
+    file: A03-吴莲-杭州.md
+    master: 吴莲
+    date: 2014-2017
+    place: 杭州（店）／野外（选穴）
+    coords_known: false
+    evidence: A
+    source: Ren PhD thesis Ch.5（访谈 + 有限观察）
+    decision_driver: 候选清单召回 + 客户需求匹配
+    terrain_used: 决定性（Google Earth 识龙脉）
+    liqi_used: 店内软件算朝向与日期
+    testable_by_us: workflow_only
+    yield: "产品形态应为召回而非打分；成功标准应为召回率；目标用户是从业者；分级应按结果类型（财丁/权贵）"
+
+  - id: A04
+    file: A04-城市从业者群像.md
+    master: 刘、咸何、杜金良等
+    date: 2014-2017
+    place: 中国城市
+    coords_known: false
+    evidence: A
+    source: Ren PhD thesis Ch.5（访谈）
+    decision_driver: 建筑相对高度与朝向（零和）
+    terrain_used: 无（建筑替换山水）
+    testable_by_us: false
+    yield: "城市业务无地形分析位置；利润在法器与室内咨询；既有软件全是理气类"
+
+  - id: A05
+    file: A05-五音姓利-北宋皇陵.md
+    master: 北宋官方（非个人）
+    date: 960-1127
+    place: 河南巩义宋陵
+    coords_known: true
+    evidence: A
+    source: 陵墓实体可测；五音姓利法见载于宋代文献
+    decision_driver: 姓氏声韵（赵姓属角音，利壬丙）
+    terrain_used: 无（朝向东南枕、西北足，与形势通则相反）
+    testable_by_us: true
+    reason: 可测，且预言纯地形模型必然失败
+    yield: "正样本混合了不同择址范式；洛阳+0.564 / 关中-1.400 的矛盾可能源于此，而非模型不稳。单因子诊断应按朝代与陵型分层"
+
+  - id: C01
+    file: C01-香港中银汇丰.md
+    master: 未具名
+    date: 1985-1990
+    place: 香港中环（22.2790N, 114.1614E）
+    coords_known: true
+    evidence: C
+    decision_driver: 建筑几何 + 商业竞争叙事
+    terrain_used: 无
+    testable_by_us: false
+    yield: "最著名的现代案例完全不含地形；它证明风水作为商业象征语言有效，非作为选址方法有效"
+
+  - id: C02
+    file: C02-蔡伯励-霍英东墓地.md
+    master: 蔡伯励
+    date: 2006
+    place: 香港柴湾佛教坟场「黄」部
+    coords_known: partial
+    evidence: C
+    decision_driver: 未能判定（地形与生辰并列，真步堂本业为历算）
+    terrain_used: 有（背山、面海、左右护卫）
+    liqi_used: 生辰八字 + 天星择日
+    testable_by_us: partial
+    maps_to_component: [xuanwu, water, hulong]
+    caveat: "事后描述而非筛选记录；被否决的候选未被记录 —— 没有否定样本就无法检验判据"
+
+  - id: C03
+    file: C03-曾子南-梨山合陵.md
+    master: 曾子南（门人营造记述）
+    date: 2019 记述
+    place: 台湾梨山
+    coords_known: false
+    evidence: C
+    decision_driver: 卦位（坐贲卦上爻，水口困卦）
+    terrain_used: 几乎无
+    testable_by_us: false
+    yield: "「能量值 36000 分」是当代把术数伪装成测量的直接证据；「与书上公开的布局图完全不一样」是对全部 B 级材料的警告"
+
+  - id: B00
+    file: B00-清代案例集-待取.md
+    master: 章仲山 / 沈竹礽 / 谈养吾
+    date: 1813-1930s
+    evidence: B
+    text_retrieved: false
+    blocked_by: "archive.org 借阅馆藏 401；360doc 403；知乎 403；旧报纸 OCR 不可用"
+    obtain_via: ["心一堂重印本", "archive.org 借阅账号", "国图/台图古籍库"]
+    note: "本次未取得原文，故不作任何内容陈述。这是本目录最大的缺口"
