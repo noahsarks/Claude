@@ -12,7 +12,7 @@
 fengshui/
 ├── MANIFEST.md              ← 本文件
 ├── README.md                M0 阶段说明（引擎的规则出处与双尺度设计）
-├── rules_luantou.yaml       规则登记册 v0.17，28 个顶层节，含全部结论与撤回记录
+├── rules_luantou.yaml       规则登记册 v0.19，30 个顶层节，含全部结论与撤回记录
 ├── luantou.py               引擎主体（v0.6）
 ├── luantou_v1.py            v0.1 存档
 ├── luantou_v3.py            v0.3 存档
@@ -22,6 +22,7 @@ fengshui/
 │   ├── round2/              三区分层抽样的背景与正样本
 │   └── grids/               实际算出的格网 .npy 与元数据
 ├── sources/                 抓取过程留下的索引文件
+├── rules_audit/             规则逐条核对原始文本（含核对方法的阴性对照标定）
 ├── layering/                条件混用问题梳理（十一条轴 + 前置判定层设计 + 古籍分类表 + 分层实测）
 ├── citycase/                应用案例：上海陆家嘴与台北101（逐层分析 + 数据 + 脚本）
 ├── audit/                   既有软件反编译审计
@@ -109,6 +110,7 @@ fengshui/
 | 商业软件地理逻辑 | `audit/geo/decl.py` `pipeline.py` `attribute.py` | `audit/geo/README.md` | 不做磁偏角校正在哈尔滨会让 **76%** 的读数落到错的山上 |
 | **跨两百年挨星回归** | `masters/corpus/regress_qing.py` | 见 `cases/B01` | 与章仲山原案**下卦 6/6 一致** |
 | **语料内部一致性** | `masters/corpus/consistency_test.py` | 见 `cases/B02` | 上山下水断语必负 7/7；旺山旺向只有一半正 2/4；rho=+0.460 p=0.036 |
+| **规则核对原文** | `rules_audit/quote_check.py` | `rules_audit/README.md` | 13/16 条引文核实属实；查出 `balance` 项无文本依据、明堂缺水项；阴性对照标定噪声底 0.38–0.47 |
 | **水系时代性** | `layering/water_anachronism.py` | `layering/README.md` | 二里头/偃师商城/东周王城距今水系 2.4–2.6 km 且汇水 0.0 km²——洛河已改道，而平原模式下 water 类占 48% 权重 |
 | **按对象分层重算** | `layering/stratify.py` | `layering/stratify_results.md` | 阴宅层（规则对象匹配）效应 +0.004 p=0.476；宗教层 +0.386 p<0.001。**假设被推翻**，且矛盾在层内原样存在 |
 | **应用案例逐层分析** | `citycase/*.py` | `citycase/README.md` | 陆家嘴与台北101：理气缺坐向不判、城市砂可算几何不可算形态、DEM 层不适用 |
@@ -123,7 +125,7 @@ fengshui/
 
 ## 六、结论台账（全部登记在 `rules_luantou.yaml`）
 
-`rules_luantou.yaml` 是本项目的**唯一结论出口**，28 个顶层节，含每一次撤回。
+`rules_luantou.yaml` 是本项目的**唯一结论出口**，30 个顶层节，含每一次撤回。
 
 ### 已撤回的结论（各带证据）
 
