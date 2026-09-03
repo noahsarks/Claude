@@ -1,4 +1,5 @@
-"""峦头评分引擎 v0.7 — 规则见 rules_luantou.yaml，每项指标对应一条原典条目。"""
+"""峦头评分引擎 v0.6 存档 —— v0.7 之前的版本，供 typical/run.py 做对照。
+   与 v0.7 的差别见 rules_luantou.yaml: v07_rule_fixes。"""
 import glob, math, re, numpy as np, rasterio
 from scipy import ndimage
 from skimage.morphology import reconstruction
@@ -228,8 +229,7 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None, scale=1.0):
     aN, aE = gy, -gx                      # 坡面下降方向（朝向低处）
     toN, toE = -dN / np.maximum(dist, 1), -dE / np.maximum(dist, 1)   # 指向穴
     dot = (aN * toN + aE * toE) / np.maximum(np.hypot(aN, aE), 1e-6)
-    # 《葬经翼·四兽砂水篇》「不拘远近，俱名有情」——原文明言距离不论，故放宽环带
-    ring2 = (dist >= 100*S) & (dist <= 4000*S)
+    ring2 = (dist >= 300*S) & (dist <= 3000*S)
     M["facing_ratio"] = float((dot[ring2] > 0).mean()) if ring2.sum() > 50 else 0.5
 
     # R4 明堂
@@ -295,8 +295,6 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None, scale=1.0):
     M.update(_water(reg, lat, lon, h0, theta, S))
     M["flank_water"] = _flank_water(reg, lat, lon, theta, S)
     M["water_converge"] = _converge(reg, lat, lon, 2000.0*S)
-    M.update(_mingtang_water(reg, lat, lon, h0, theta, S,
-                             known=(theta_deg is not None)))
     return M
 
 def _converge(reg, lat, lon, R=2000.0):
@@ -334,59 +332,6 @@ def _flank_water(reg, lat, lon, theta, S=1.0):
     right = ((rel < -20) & (rel > -160)).any()
     return float(left) * 0.5 + float(right) * 0.5
 
-
-def _mingtang_water(reg, lat, lon, h0, theta, S=1.0, known=True):
-    """《葬经翼·明堂篇》：「明堂者，穴前水聚处也」
-       「大抵明堂以聚水为上，横抱次之，朝水又次之，
-         交互有情、不见水去而顺流者又次之。」
-       原文给的是**有序**四级，不是并列加权，故此处返回序位分而非加权和。"""
-    # 坐向未知则不判。「穴前」是相对于向的方位，向若靠地形反推而来，
-    # 本项就无意义——此时返回 None，由 score() 把该项排除并重新归一，
-    # 而不是给 0 分（那就是拿「没检测到」冒充「没有」）。
-    out = {"mt_water": None, "mt_class": "不判(坐向未知)"}
-    if not known:
-        return out
-    out = {"mt_water": 0.0, "mt_class": "无水"}
-    if reg.stream_rc.size == 0:
-        return out
-    cr, cc = reg.crc(lat, lon)
-    dy = (reg.stream_rc[:, 0] - cr) * reg.cdy * -1.0
-    dx = (reg.stream_rc[:, 1] - cc) * reg.cdx
-    d = np.hypot(dx, dy)
-    xiang = (theta + 180.0) % 360.0                      # 向 = 坐 + 180
-    az = np.degrees(np.arctan2(dx, dy)) % 360.0
-    front = (np.abs(bearing_diff(az, xiang)) <= 45) & (d > 80 * S) & (d < 1500 * S)
-    if not front.any():
-        return out
-    idx = np.argwhere(front).ravel()
-    accs = np.array([reg.acc_km2[r, c] for r, c in reg.stream_rc[idx]])
-    i_near = idx[int(np.argmin(d[idx]))]
-    pr, pc = reg.stream_rc[i_near]
-    a_near = float(reg.acc_km2[pr, pc])
-
-    # 「聚水」：前方水量显著大于最近一条，或前方扇区内有支流交汇
-    gather = (accs.max() >= max(2.0 * a_near, a_near + 0.5)) if a_near > 0 else (accs.max() > 0.5)
-
-    # 水流方向（D8）与「水→穴」方向的夹角
-    k = reg.d8[pr, pc]
-    if k >= 0:
-        orr, occ = reg.offs[k][0], reg.offs[k][1]
-        fv_n, fv_e = -orr * reg.cdy, occ * reg.cdx
-        flow_az = math.degrees(math.atan2(fv_e, fv_n)) % 360.0
-        to_site = (math.degrees(math.atan2(-dx[i_near], -dy[i_near]))) % 360.0
-        ang = abs(bearing_diff(flow_az, to_site))
-    else:
-        ang = 90.0
-
-    if gather:
-        out.update(mt_water=1.00, mt_class="聚水")
-    elif 60 <= ang <= 120:
-        out.update(mt_water=0.75, mt_class="横抱")
-    elif ang < 60:
-        out.update(mt_water=0.50, mt_class="朝水")
-    else:
-        out.update(mt_water=0.25, mt_class="顺流")
-    return out
 
 def _water(reg, lat, lon, h0, theta, S=1.0):
     out = {"d_water": 9999.0, "bank": 0.0, "sinuosity": 1.0, "lock": 1.0,
@@ -482,27 +427,16 @@ def score(M):
                 + .30*pl(M["back_slope_near"], [(0,.2),(3,.8),(8,1),(20,1),(30,.5),(45,.1)]) \
                 + .25*pl(M["back_mono"], [(.5,0),(.75,.5),(.92,1)])
     # 龙虎双尺度：贴身砂(形) 七成，外龙虎/水口砂(势) 三成
-    # v0.7：删去左右对称项。《葬经翼·四兽砂水篇》对龙虎的要求是
-    # 「环抱有情，不逼不压，不折不窜」，并「青龙蜿蜒，白虎驯頫」——
-    # 给左右规定了不同形态，全文无一处要求对称。原对称项占 hulong 24.5%，无出处，删。
-    near_hu = .60*pl(min(M["L_rise"], M["R_rise"]), [(-30,0),(0,.25),(30,.8),(120,1),(500,1)]) \
-            + .40*pl(max(M["L_ang"], M["R_ang"]), [(0,.4),(5,1),(18,1),(30,.3),(45,0)])
+    near_hu = .40*pl(min(M["L_rise"], M["R_rise"]), [(-30,0),(0,.25),(30,.8),(120,1),(500,1)]) \
+            + .35*(1 - abs(M["L_rise"]-M["R_rise"]) / max(abs(M["L_rise"]), abs(M["R_rise"]), 1.0)) \
+            + .25*pl(max(M["L_ang"], M["R_ang"]), [(0,.4),(5,1),(18,1),(30,.3),(45,0)])
     out_hu  = pl(min(M["Lout"], M["Rout"]), [(-100,0),(0,.3),(50,.7),(200,1),(900,1)])
     c["hulong"] = .70*near_hu + .30*out_hu
     c["xiangbei"] = pl(M["facing_ratio"], [(.30,0),(.50,.40),(.65,.85),(.80,1)])
     # 明堂两层：案内明堂 + 案外大堂（清东陵相度档案「案内明堂舒畅开阳，案外大堂规模宏阔」）
-    # v0.7：补入水项。《葬经翼·明堂篇》「明堂者，穴前水聚处也」，
-    # 且「以聚水为上，横抱次之，朝水又次之，……顺流者又次之」——
-    # 明堂在原文里首先是水的形态，此前六个分项全是地形，一项水都没有。
-    # 水项权重 .35，其余三项按原比例压缩至 .65。
-    _terr = (.30*pl(M["front_slope"], [(0,1),(6,1),(15,.4),(30,0)])
-           + .25*pl(M["front_drop"], [(-50,0),(0,.5),(10,1),(150,1)])
-           + .45*pl(M["front_open"], [(0,.45),(1,.8),(3,1),(8,.7),(15,.25),(25,0)]))
-    _mtw = M.get("mt_water")
-    if _mtw is None:
-        inner = _terr                      # 坐向未知：水项不判，退回纯地形并保持归一
-    else:
-        inner = .35*_mtw + .65*_terr
+    inner = .30*pl(M["front_slope"], [(0,1),(6,1),(15,.4),(30,0)]) \
+          + .25*pl(M["front_drop"], [(-50,0),(0,.5),(10,1),(150,1)]) \
+          + .45*pl(M["front_open"], [(0,.45),(1,.8),(3,1),(8,.7),(15,.25),(25,0)])
     outer = .55*pl(M["outer_open"], [(0,.3),(1,.8),(3,1),(9,.6),(18,.2)]) \
           + .45*(.6*pl(M["an_ang"], [(0,0),(1.5,.5),(3,1),(8,1),(15,.4),(25,0)])
                + .4*pl(M["chao_ang"], [(0,.2),(1,.7),(3,1),(10,.8),(20,.5)]))
@@ -540,9 +474,9 @@ def score(M):
         if r > 0.02: F[name] = pen * r
     add("拒尸(玄武不垂)", .40, ramp(M["back_dip"], 25, 60))
     if M["bank"] < 0 and M["d_water"] < 800:
-        add("朱雀腾去", .40, ramp(M["sinuosity"], 1.08, 1.30))
-    add("虎蹲(衔尸)", .35, ramp(M["R_ang"], 25, 38))
-    add("龙踞(嫉主)", .35, ramp(M["L_ang"], 25, 38))
+        add("腾去(朱雀不舞)", .40, ramp(M["sinuosity"], 1.08, 1.30))
+    add("衔尸(虎蹲)", .35, ramp(M["R_ang"], 25, 38))
+    add("嫉主(龙踞)", .35, ramp(M["L_ang"], 25, 38))
     add("断山(坠足)", .25, ramp(M["back_rise_300"], 110, 200))
     if mode == "mountain":
         if M.get("water_converge", 1) < 1:

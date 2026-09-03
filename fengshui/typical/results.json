@@ -1,0 +1,154 @@
+[
+ {
+  "name": "汉魏洛阳故城",
+  "对象": "城址",
+  "坐": 0,
+  "v06": 0.3644,
+  "v07": 0.3414,
+  "mt_class": "横抱",
+  "comp": {
+   "xuanwu": 0.538,
+   "hulong": 0.317,
+   "xiangbei": 0.6237,
+   "mingtang": 0.5193,
+   "water": 0.5585,
+   "water_gate": 0.2,
+   "zangfeng": 0.3498
+  },
+  "faults": [
+   "朱雀腾去"
+  ]
+ },
+ {
+  "name": "隋唐洛阳城",
+  "对象": "城址",
+  "坐": 0,
+  "v06": 0.2961,
+  "v07": 0.3321,
+  "mt_class": "无水",
+  "comp": {
+   "xuanwu": 0.5482,
+   "hulong": 0.4346,
+   "xiangbei": 0.3796,
+   "mingtang": 0.459,
+   "water": 0.5702,
+   "water_gate": 0.2,
+   "zangfeng": 0.3793
+  },
+  "faults": [
+   "朱雀腾去"
+  ]
+ },
+ {
+  "name": "二里头",
+  "对象": "古遗址",
+  "坐": null,
+  "v06": 0.2918,
+  "v07": 0.2959,
+  "mt_class": "不判(坐向未知)",
+  "comp": {
+   "xuanwu": 0.4264,
+   "hulong": 0.3268,
+   "xiangbei": 0.4381,
+   "mingtang": 0.5149,
+   "water": 0.3192,
+   "water_gate": 0.2,
+   "zangfeng": 0.3591
+  },
+  "faults": []
+ },
+ {
+  "name": "明十三陵长陵",
+  "对象": "古墓葬",
+  "坐": 0,
+  "v06": 0.585,
+  "v07": 0.5962,
+  "mt_class": "横抱",
+  "comp": {
+   "xuanwu": 0.8751,
+   "hulong": 0.7171,
+   "xiangbei": 0.6691,
+   "mingtang": 0.6468,
+   "water": 0.6598,
+   "water_gate": 0.7063,
+   "zangfeng": 0.8392
+  },
+  "faults": [
+   "折臂"
+  ]
+ },
+ {
+  "name": "北宋永定陵",
+  "对象": "古墓葬",
+  "坐": 135,
+  "v06": 0.4983,
+  "v07": 0.4681,
+  "mt_class": "无水",
+  "comp": {
+   "xuanwu": 0.8343,
+   "hulong": 0.3394,
+   "xiangbei": 0.4736,
+   "mingtang": 0.4168,
+   "water": 0.5484,
+   "water_gate": 0.2261,
+   "zangfeng": 0.3898
+  },
+  "faults": []
+ },
+ {
+  "name": "台北101",
+  "对象": "近现代建筑",
+  "坐": 0,
+  "v06": 0.3043,
+  "v07": 0.312,
+  "mt_class": "横抱",
+  "comp": {
+   "xuanwu": 0.2933,
+   "hulong": 0.5401,
+   "xiangbei": 0.361,
+   "mingtang": 0.8311,
+   "water": 0.4505,
+   "water_gate": 0.2,
+   "zangfeng": 0.6232
+  },
+  "faults": [
+   "折臂"
+  ]
+ },
+ {
+  "name": "上海中心大厦",
+  "对象": "近现代建筑",
+  "坐": 50.5,
+  "v06": 0.2441,
+  "v07": 0.2713,
+  "mt_class": "无水",
+  "comp": {
+   "xuanwu": 0.4702,
+   "hulong": 0.413,
+   "xiangbei": 0.3183,
+   "mingtang": 0.4281,
+   "water": 0.158,
+   "water_gate": 0.2,
+   "zangfeng": 0.3762
+  },
+  "faults": []
+ },
+ {
+  "name": "上海环球金融中心",
+  "对象": "近现代建筑",
+  "坐": 173.5,
+  "v06": 0.2164,
+  "v07": 0.2393,
+  "mt_class": "无水",
+  "comp": {
+   "xuanwu": 0.3554,
+   "hulong": 0.3434,
+   "xiangbei": 0.316,
+   "mingtang": 0.3851,
+   "water": 0.158,
+   "water_gate": 0.2,
+   "zangfeng": 0.3445
+  },
+  "faults": []
+ }
+]
