@@ -1,0 +1,35 @@
+{
+ "上海中心大厦": {
+  "elev": 1.210808277130127,
+  "final": 0.24356307804876562,
+  "xuanwu": 0.468,
+  "hulong": 0.544,
+  "xiangbei": 0.279,
+  "mingtang": 0.576,
+  "water": 0.158,
+  "water_gate": 0.2,
+  "zangfeng": 0.376
+ },
+ "金茂大厦": {
+  "elev": 6.452829360961914,
+  "final": 0.2539188394557262,
+  "xuanwu": 0.389,
+  "hulong": 0.246,
+  "xiangbei": 0.282,
+  "mingtang": 0.511,
+  "water": 0.158,
+  "water_gate": 0.2,
+  "zangfeng": 0.343
+ },
+ "台北101": {
+  "elev": 12.397117614746094,
+  "final": 0.42066268592435324,
+  "xuanwu": 0.732,
+  "hulong": 0.513,
+  "xiangbei": 0.412,
+  "mingtang": 0.584,
+  "water": 0.39,
+  "water_gate": 0.2,
+  "zangfeng": 0.623
+ }
+}
