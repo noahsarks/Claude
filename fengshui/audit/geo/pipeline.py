@@ -57,7 +57,8 @@ def chart(yun, zuo_name, rule):
     return dict(zuo=zuo_name, xiang=xiang[0], ge=ge, shan=sp, xiang_pan=xp, gZ=gZ, gX=gX)
 
 # ── 三个引擎的地理步骤 ──
-DECL = {r['name']: r for r in json.load(open('decl.json'))}
+_HERE = __import__('os').path.dirname(__import__('os').path.abspath(__file__))
+DECL = {r['name']: r for r in json.load(open(__import__('os').path.join(_HERE, 'decl.json')))}
 
 def true_bearing(engine, city, mag_reading):
     d = DECL[city]
