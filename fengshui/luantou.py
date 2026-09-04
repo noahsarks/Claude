@@ -77,9 +77,81 @@ class Region:
             drop = (fill - nb) / dist
             upd = drop > best
             best[upd] = drop[upd]; di[upd] = k
+        # ── 平地导流（v0.8 修）────────────────────────────────────
+        # 形态学填洼会造出严格水平的平面，平面上 8 邻域落差全为 0，
+        # 上面那段 `drop > best`（best 初值 0）便给不出方向，汇流在此中断。
+        # 实测（单瓦片）：6.4% 的内部格无下游，其中 100% 是填洼造出的严格平地；
+        # 3×3 瓦片区最大流域仅占区域面积 0.22%——洛河这类干流根本没被识别出来。
+        # 平原正是平地最多的地方，所以这个缺陷恰好在最需要水系的地方最严重。
+        #
+        # 解法用 Garbrecht & Martz (1997) 的双梯度法：在平地上叠一个极小的合成坡降，
+        #   ① 背离高地（离「与更高地相邻的平地格」越远越低）
+        #   ② 趋向出口（离「与更低地相邻的平地格」越近越低），权重 2 倍
+        # 然后在 fill+ε·梯度 上重排 D8。ε 取 1e-3 m/步，远小于 DEM 垂直分辨率。
+        flat = np.zeros((h, w), bool)
+        flat[1:-1, 1:-1] = (di < 0)[1:-1, 1:-1]
+        if flat.any():
+            fpad = np.pad(fill.astype(np.float64), 1, constant_values=np.inf)
+            nb_hi = np.zeros((h, w), bool); nb_lo = np.zeros((h, w), bool)
+            for dr, dc, _ in offs:
+                nb = fpad[1+dr:1+dr+h, 1+dc:1+dc+w]
+                nb_hi |= nb > fill                       # 邻有更高地
+                nb_lo |= nb < fill                       # 邻有更低地（即出口）
+            K3 = np.ones((3, 3), bool)
+            def bfs_from(seed):
+                dist = np.full((h, w), -1, np.int32)
+                cur = seed & flat
+                dist[cur] = 0
+                k = 0
+                while cur.any():
+                    k += 1
+                    cur = ndimage.binary_dilation(cur, K3) & flat & (dist < 0)
+                    dist[cur] = k
+                return dist, k
+            dh, kh = bfs_from(nb_hi)                     # 距高地
+            dl, kl = bfs_from(nb_lo)                     # 距出口
+            dh[dh < 0] = kh + 1                          # 平地内与高地不连通者
+            dl[dl < 0] = kl + 1
+            grad = np.zeros((h, w), np.float64)
+            grad[flat] = 2.0 * dl[flat] + (kh + 1 - dh[flat])
+            synth = fill.astype(np.float64) + 1e-3 * grad
+            # 只对平地格重排方向（非平地格已有真实落差，不动）
+            spad = np.pad(synth, 1, constant_values=np.inf)
+            bestdrop = np.zeros((h, w))
+            for k, (dr, dc, dist_) in enumerate(offs):
+                nb = spad[1+dr:1+dr+h, 1+dc:1+dc+w]
+                drop = (synth - nb) / dist_
+                upd = flat & (drop > bestdrop)
+                bestdrop[upd] = drop[upd]; di[upd] = k
+            # 合成梯度里仍有平手（等距等高）的残余格：再做一次多源 BFS 兜底，
+            # 一律指向「离已定向格更近」的邻格。步数严格递减，故不成环。
+            resid = flat & (di < 0)
+            if resid.any():
+                bfs = np.full((h, w), -1, np.int32)
+                bfs[~resid] = 0
+                cur = ~resid; k2 = 0
+                while True:
+                    k2 += 1
+                    nxt = ndimage.binary_dilation(cur, K3) & resid & (bfs < 0)
+                    if not nxt.any(): break
+                    bfs[nxt] = k2; cur = nxt
+                bfs[bfs < 0] = k2 + 1
+                bpad = np.pad(bfs.astype(np.float64), 1, constant_values=np.inf)
+                bkey = np.full((h, w), np.inf)
+                for k, (dr, dc, _d) in enumerate(offs):
+                    nb_b = bpad[1+dr:1+dr+h, 1+dc:1+dc+w]
+                    nb_s = spad[1+dr:1+dr+h, 1+dc:1+dc+w]
+                    key = nb_b * 1e6 + nb_s
+                    upd = resid & (key < bkey) & (nb_b < bfs)
+                    bkey[upd] = key[upd]; di[upd] = k
+                # 兜底格的合成高程再抬一点，保证累积排序上它在下游之前
+                synth = synth + 1e-6 * np.where(resid, bfs, 0)
+        else:
+            synth = fill.astype(np.float64)
         self.d8, self.offs = di, offs
-        # 累积：按高程降序单遍推流
-        order = np.argsort(fill.ravel())[::-1]
+        self.synth = synth
+        # 累积：按合成高程降序单遍推流（平地上从远端推向出口）
+        order = np.argsort(synth.ravel())[::-1]
         acc = np.ones(h * w, np.float32)
         dr_ = np.array([o[0] for o in offs]); dc_ = np.array([o[1] for o in offs])
         dif = di.ravel()
@@ -297,7 +369,125 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None, scale=1.0):
     M["water_converge"] = _converge(reg, lat, lon, 2000.0*S)
     M.update(_mingtang_water(reg, lat, lon, h0, theta, S,
                              known=(theta_deg is not None)))
+    M.update(_pingyang(reg, lat, lon, h0, S))       # v0.8：平洋法（《水龙经》）
     return M
+
+
+# ── B7 平洋法 ──《欽定古今圖書集成》卷 671–674《水龍經》──────────────
+# 立这一节的理由：此前 16 条规则全部出自山龙一系，而《水龙经》开篇即说
+# 「後世言地，知山之龍而不知水之龍，遂使平洋水局之地，傅會山龍之妄說」——
+# 拿山龙判据去评平原，原文自己就点名说是错的。洛阳盆地、关中、陆家嘴都是平原样本。
+def _pingyang(reg, lat, lon, h0, S=1.0):
+    """《水龍經》平洋法。四项，出处逐条注在下面。
+
+    支幹排第一有原文依据：「余以支幹之說，為水龍第一義」（卷671 總論一）。
+    其余三项之间的权重是估值，原文只给了「水龍妙用，只在流神曲秀」这一句偏重。
+    """
+    out = {"py_zhigan": 0.0, "py_class": "俱無", "py_wrap": 0.0,
+           "py_bends": 0, "py_grad": 999.0, "py": 0.0,
+           "py_zhi_d": 9999.0, "py_gan": 0.0, "py_zhi": 0.0}
+    if reg.stream_rc.size == 0:
+        out.update(py_class="不判(无水系数据)", py=None, py_zhigan=None)
+        return out
+    cr, cc = reg.crc(lat, lon)
+    dy = (reg.stream_rc[:, 0] - cr) * reg.cdy
+    dx = (reg.stream_rc[:, 1] - cc) * reg.cdx
+    d = np.hypot(dx, dy)
+    near = d < 4000 * S
+    if not near.any():
+        out.update(py_class="不判(4km 内无水道)", py=None, py_zhigan=None)
+        return out
+    idx = np.argwhere(near).ravel()
+    acc = np.array([reg.acc_km2[r, c] for r, c in reg.stream_rc[idx]])
+    amax = float(acc.max())
+    if amax <= 0:
+        out.update(py_class="不判(汇水面积为零)", py=None, py_zhigan=None)
+        return out
+
+    # ① 支幹相扶 ——「以通流大水為行龍而為幹，溝渠小水為割界而為支。穴法取支不取幹」
+    #   「大江大河……其氣曠渺，與墓宅不親，斷難下手。須於其旁另有支水，作元辰繞抱成胎」
+    # 判不了就不判。DEM 汇流网络在平原上严重低估干流：本项目实测洛阳一带
+    # 4 km 内最大汇水仅 20 余 km²，而洛河实际流域上万 km²——120 m 重采样加填洼
+    # 根本分辨不出宽浅的大河河槽。此时「幹」与「支」无从区分，
+    # 报「俱無」就是拿「没检测到」冒充「没有」，与明堂水项同一类错误，故不判。
+    STREAM_THR = 2.0                             # Region._drainage 的成道阈值
+    if amax < 4 * STREAM_THR:
+        out.update(py_class="不判(汇流网络未见干水)", py=None, py_zhigan=None)
+        return out
+    gan_thr = max(4 * STREAM_THR, 0.30 * amax)  # 幹：通流大水
+    zhi_thr = 0.25 * amax                        # 支：溝渠小水
+    is_gan = acc >= gan_thr
+    has_gan = bool(is_gan.any())
+    zhi_m = (acc <= zhi_thr) & (d[idx] < 1000 * S)                   # 支须在「旁」
+    has_zhi = bool(zhi_m.any())
+    # 支到穴的距离——「須於其旁另有支水，作元辰繞抱成胎」，越贴身越是「內氣」
+    out["py_zhi_d"] = float(d[idx][zhi_m].min()) if has_zhi else 9999.0
+    if has_gan and has_zhi:
+        # 「皆不若支幹相扶之地也」
+        out.update(py_zhigan=1.00, py_class="支幹相扶")
+    elif has_gan or has_zhi:
+        # 「小幹無支，其局雖大，必久而後發；支龍無幹，其效雖捷，而氣盡易衰」
+        # 原文没有把这两者互相排序，故给同值，不臆造高下。
+        out.update(py_zhigan=0.40,
+                   py_class="有幹無支" if has_gan else "有支無幹")
+
+    # ② 幹水回頭環繞 ——「大江大河一二十里而來，不見回頭環繞，中間雖有屈曲，
+    #   決不結穴，直至環轉回顧之處，方是龍脈止聚」
+    if has_gan:
+        gaz = np.degrees(np.arctan2(dx[idx][is_gan], dy[idx][is_gan])) % 360.0
+        occ = np.zeros(24, bool)
+        occ[(gaz // 15).astype(int)] = True
+        out["py_wrap"] = float(occ.mean())
+
+    # ③④ 沿最近河道上下游各走约 1.2 km，量「屈曲」与「停蓄」
+    i0 = idx[int(np.argmin(d[idx]))]
+    pr, pc = reg.stream_rc[i0]
+    pts = [(pr, pc)]
+    r, c = pr, pc
+    for _ in range(12):                                   # 下游
+        k = reg.d8[r, c]
+        if k < 0: break
+        r, c = r + reg.offs[k][0], c + reg.offs[k][1]
+        if not (0 <= r < reg.d8.shape[0] and 0 <= c < reg.d8.shape[1]): break
+        pts.append((r, c))
+    up, r, c = [], pr, pc
+    for _ in range(12):                                   # 上游取汇流最大者
+        best, bp = -1, None
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == dc == 0: continue
+                nr, nc = r + dr, c + dc
+                if not (0 <= nr < reg.d8.shape[0] and 0 <= nc < reg.d8.shape[1]): continue
+                k = reg.d8[nr, nc]
+                if k < 0: continue
+                if (nr + reg.offs[k][0], nc + reg.offs[k][1]) == (r, c) and reg.acc[nr, nc] > best:
+                    best, bp = reg.acc[nr, nc], (nr, nc)
+        if bp is None: break
+        up.append(bp); r, c = bp
+    chan = list(reversed(up)) + pts
+    if len(chan) >= 5:
+        P = np.array([[q[1] * reg.cdx, -q[0] * reg.cdy] for q in chan])
+        v = np.diff(P, axis=0)
+        cross = v[:-1, 0] * v[1:, 1] - v[:-1, 1] * v[1:, 0]     # 转向的正负
+        sgn = np.sign(cross[np.abs(cross) > 1e-6])
+        # ③「水法不拘去與來，但要屈曲去復迴，三回五度轉顧穴」——数的是转向反复的次数
+        out["py_bends"] = int((np.diff(sgn) != 0).sum()) if sgn.size > 1 else 0
+        # ④「澄清停蓄甚為佳，傾瀉急流有何益」——河道纵比降，越平越「停蓄」
+        hs = np.array([reg.fill[q[0], q[1]] for q in chan], float)
+        L = float(np.hypot(*v.T).sum())
+        if L > 1:
+            out["py_grad"] = float(abs(hs[0] - hs[-1]) / (L / 1000.0))
+
+    # 势/形在平洋的对应物：「以幹龍繞抱，取外氣形局；以支龍正息交會，取內氣孕育」
+    # ——幹即势（外气），支即形（内气）。这不是我的类比，是卷 671 總論一的原话。
+    out["py_gan"] = pl(out["py_wrap"], [(0,0),(.15,.35),(.35,.8),(.6,1)])
+    out["py_zhi"] = pl(out["py_zhi_d"], [(0,1),(400,1),(1000,.5),(2000,.15),(9999,0)])
+
+    out["py"] = (.40 * out["py_zhigan"]
+               + .25 * pl(float(out["py_bends"]), [(0,.15),(1,.45),(3,1),(5,1),(12,1)])
+               + .20 * pl(out["py_wrap"], [(0,0),(.15,.35),(.35,.8),(.6,1)])
+               + .15 * pl(out["py_grad"], [(0,1),(2,.9),(10,.4),(30,.1),(100,0)]))
+    return out
 
 def _converge(reg, lat, lon, R=2000.0):
     """诸水会聚：R 内汇流点（两条上游支流交汇）的个数。"""
@@ -348,6 +538,7 @@ def _mingtang_water(reg, lat, lon, h0, theta, S=1.0, known=True):
         return out
     out = {"mt_water": 0.0, "mt_class": "无水"}
     if reg.stream_rc.size == 0:
+        out.update(py_class="不判(无水系数据)", py=None, py_zhigan=None)
         return out
     cr, cc = reg.crc(lat, lon)
     dy = (reg.stream_rc[:, 0] - cr) * reg.cdy * -1.0
@@ -471,7 +662,14 @@ def _water(reg, lat, lon, h0, theta, S=1.0):
 # 注：v0.3 未设独立"向阳"项。《无定河》实证显示坡向对聚落选址无显著倾向，
 # 且作者用多角度光照模拟证明该流域阴坡实际同样受光充足，坡向与光照关联度很低。
 W_MOUNT = dict(water=.24, water_gate=.09, mingtang=.18, xuanwu=.15, hulong=.11, xiangbei=.12, zangfeng=.11)
-W_PLAIN = dict(water=.34, water_gate=.14, mingtang=.22, xuanwu=.08, hulong=.06, xiangbei=.13, zangfeng=.03)
+# v0.8 平洋权重改按《水龙经》重排。原 W_PLAIN 只是把山龙各项按比例调了调，
+# 而原文说的是山龙判据在平洋根本不适用：
+#   「行到平洋莫問蹤，只看水繞是真龍」
+#   「平陽大地無龍虎，漭漭歸何處？東西只取水為龍」（卷671 序）
+# 故平洋模式下 xuanwu 与 hulong 归零，其 0.14 全部转给 pingyang。
+# 藏风保留 0.03——《水龙经》未论藏风，不能借它的名义删《葬经》的条目。
+W_PLAIN = dict(water=.34, water_gate=.14, mingtang=.22, xuanwu=.00, hulong=.00,
+               xiangbei=.13, zangfeng=.03, pingyang=.14)
 
 def score(M):
     """《葬经》「千尺为势，百尺为形，势与形顺者吉，势与形逆者凶。
@@ -519,13 +717,31 @@ def score(M):
     c["zangfeng"] = .5*pl(M["tpi"], [(-120,1),(-20,1),(0,.7),(20,.4),(60,.15),(150,0)]) \
                   + .5*pl(M["barrier"], [(0,0),(.3,.4),(.6,.85),(.85,1)])
     mode = "plain" if M["relief_3km"] < 120 else "mountain"
-    W = W_PLAIN if mode == "plain" else W_MOUNT
+    W = dict(W_PLAIN if mode == "plain" else W_MOUNT)
+    _py = M.get("py")
+    if mode == "plain":
+        if _py is None:
+            # 平洋项不判：把它的权重按比例摊回其余各项，而不是记 0 分。
+            # 同 mingtang 水项的处理——「没检测到」不等于「没有」。
+            w_py = W.pop("pingyang")
+            rest = sum(W.values())
+            for k in W: W[k] = W[k] * (1 + w_py / rest)
+        else:
+            c["pingyang"] = float(_py)
     for k in W: c[k] = min(max(c[k], 0), 1)
 
     # ── 势 与 形 ──────────────────────────────────────────────
     # 势(千尺)：玄武、外龙虎/外堂、水口关锁；形(百尺)：内明堂、贴身龙虎、得水、向背
-    shi  = (.45*c["xuanwu"] + .25*outer + .30*c["water_gate"])
-    xing = (.35*inner + .30*near_hu + .20*c["water"] + .15*c["xiangbei"])
+    # v0.8：平洋的势与形换成水的对应物。《水龙经》卷671 總論一：
+    # 「以幹龍繞抱，取外氣形局；以支龍正息交會，取內氣孕育」——
+    # 幹即势（外气），支即形（内气）。在平原上拿玄武充势、拿贴身龙虎充形，
+    # 正是原文批的「傅會山龍之妄說」。
+    if mode == "plain" and _py is not None:
+        shi  = (.45*M.get("py_gan", 0.0) + .25*outer + .30*c["water_gate"])
+        xing = (.35*inner + .30*M.get("py_zhi", 0.0) + .20*c["water"] + .15*c["xiangbei"])
+    else:
+        shi  = (.45*c["xuanwu"] + .25*outer + .30*c["water_gate"])
+        xing = (.35*inner + .30*near_hu + .20*c["water"] + .15*c["xiangbei"])
     base = sum(W[k]*c[k] for k in W)
     # 「势与形逆者凶」：失配惩罚，且不对称——「势凶形吉，百福希一」重于「势吉形凶」
     gap = shi - xing
@@ -548,6 +764,13 @@ def score(M):
         if M.get("water_converge", 1) < 1:
             add("过山(势未止)", .30, ramp(M.get("sand_gather", 1), .35, .12))
         add("独山(气不会)", .35, ramp(M.get("ridge_conn", 1), .25, .06))
+    else:
+        # 《水龍經·幹水散氣圖說》：「幹水斜行，似有曲折，而非環抱，
+        # 又無支水，以作內氣，總不結穴。」——三个条件同时成立才算，
+        # 且原文说的是「總不結穴」，属门槛级，故罚重（与五不葬同量级）。
+        if (M.get("py") is not None and M.get("py_class") == "有幹無支"
+                and M.get("py_wrap", 1.0) < 0.35):
+            add("干水散气", .35, ramp(M.get("py_wrap", 1.0), .35, .10))
     add("折臂", .15, ramp(M["gap_ratio"], .20, .42))
     add("割脚", .20, ramp(M["d_water"], 80, 25))
     disc = 1.0
