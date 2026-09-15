@@ -1,0 +1,24 @@
+{
+ "250.0": {
+  "modern_sd": 0.0292,
+  "zjy_sd": 0.0316,
+  "modern_snr": 3.09,
+  "zjy_snr": 2.03
+ },
+ "500.0": {
+  "modern_sd": 0.0425,
+  "zjy_sd": 0.0432,
+  "modern_snr": 2.12,
+  "zjy_snr": 1.48
+ },
+ "1000.0": {
+  "modern_sd": 0.0487,
+  "zjy_sd": 0.0439,
+  "modern_snr": 1.85,
+  "zjy_snr": 1.46
+ },
+ "spatial_sd": {
+  "modern": 0.0902,
+  "zjy": 0.0641
+ }
+}

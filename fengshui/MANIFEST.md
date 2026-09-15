@@ -25,11 +25,14 @@ fengshui/
 ├── rules_audit/             规则逐条核对原始文本（含核对方法的阴性对照标定）
 ├── layering/                条件混用问题梳理（十一条轴 + 前置判定层设计 + 古籍分类表 + 分层实测）
 ├── harbin/                  应用：哈尔滨两套规则对照（现代版 v1.1 vs《葬經翼》本）
-│   ├── README.md            前置四问、两套规则的取舍、结果与分歧归因
-│   ├── harbin_compare.png   三幅图：两套规则各自的高分区 + 分位差
-│   ├── grid.py map.py compare.py   打分 / 出图 / 对照统计
-│   ├── fetch_rivers.py fetch_places.py   OSM 河道与地名
-│   └── grid_n0.json top_areas.json       4012 点结果
+│   ├── README.md            前置四问、两套规则的取舍、噪声底、结果与分歧归因
+│   ├── harbin_city.png      **主结果**：市区六区（松北・主城・平房），按行政边界裁
+│   ├── harbin_prefecture.png 附：地级市范围（含阿城玉泉），第一版的框
+│   ├── grid.py map.py compare.py   打分 / 出图 / 对照统计（`city` / `prefecture`）
+│   ├── noise.py             位移噪声底——平地上不先量这个，图不能读
+│   ├── districts_mask.py    把 OSM 关系成员拼成闭环，做行政区裁切
+│   ├── fetch_rivers.py fetch_places.py fetch_districts.py  OSM 河道 / 地名 / 区界
+│   └── grid_city.json grid_prefecture.json noise_city.json top_areas_*.json
 ├── typical/                 典型建筑验证 + 文献编年 + 分级后的现代版规则
 │   ├── sites.yaml           8 个点，每点坐向注明出处
 │   ├── run.py               v0.6 / v0.7 并排对照

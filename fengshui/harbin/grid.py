@@ -85,10 +85,21 @@ def score_zangjingyi(M):
                 faults=F, final=base * mism * disc, mode='山龙(本书不分平洋)')
 
 # ── 格网 ────────────────────────────────────────────────────────────
-BOX = dict(lat0=45.35, lat1=46.15, lon0=126.00, lon1=127.30)   # 哈尔滨主城及近郊
-STEP_M = 1500.0
+# 两个范围。默认是 city——用户要的是**市区**（松北、平房、主城），
+# 而不是整个地级市；阿城、玉泉在地级市内但不在市区，第一版把框拉到那边去了。
+SCOPES = {
+    'city':       dict(box=dict(lat0=45.52, lat1=46.10, lon0=126.14, lon1=127.12),
+                       step=750.0, mask='districts',
+                       desc='哈尔滨市区：松北、道里、南岗、道外、香坊、平房六区'
+                            '（框取六区外接矩形，再按行政边界裁）'),
+    'prefecture': dict(box=dict(lat0=45.35, lat1=46.15, lon0=126.00, lon1=127.30),
+                       step=1500.0,
+                       desc='地级市范围（含阿城、玉泉），第一版用的框'),
+}
+BOX = SCOPES['city']['box']
+STEP_M = SCOPES['city']['step']
 
-def build(theta_deg=0.0, tag='n0'):
+def build(theta_deg=0.0, tag='city', mask=None):
     reg = K.Mosaic('harbin', range(45, 47), range(125, 128))
     # 接外部水系：松花江上游在瓦片外，DEM 汇流累积在瓦片内看不出它是「幹」，
     # 引擎会正确弃权，但平洋法第一条就用不上。故拿 OSM 实测河道给「幹」。
@@ -101,12 +112,20 @@ def build(theta_deg=0.0, tag='n0'):
     dlon = STEP_M / (111320.0 * math.cos(math.radians(clat)))
     lats = np.arange(BOX['lat0'], BOX['lat1'], dlat)
     lons = np.arange(BOX['lon0'], BOX['lon1'], dlon)
+    D = None
+    if mask == 'districts':
+        from districts_mask import Districts
+        D = Districts()
+        print('按行政边界裁：', ', '.join(D.paths), flush=True)
     print(f'格网 {len(lats)} × {len(lons)} = {len(lats)*len(lons)} 点，'
           f'步长 {STEP_M:.0f} m，坐向 {theta_deg}', flush=True)
     rows = []
     t0 = time.time()
     for i, la in enumerate(lats):
         for lo in lons:
+            dist = D.which(float(la), float(lo)) if D is not None else None
+            if D is not None and dist is None:
+                rows.append(None); continue          # 区外不算
             try:
                 M = L.metrics(reg, float(la), float(lo), theta_deg=theta_deg)
             except Exception:
@@ -114,7 +133,7 @@ def build(theta_deg=0.0, tag='n0'):
             if M is None:
                 rows.append(None); continue
             a = score_modern(M); b = score_zangjingyi(M)
-            rows.append(dict(lat=float(la), lon=float(lo),
+            rows.append(dict(lat=float(la), lon=float(lo), district=dist,
                              h=float(M['h0']) if 'h0' in M else None,
                              relief=float(M['relief_3km']), landform=M.get('landform'),
                              mode=a['mode'], py_class=M.get('py_class'),
@@ -128,7 +147,7 @@ def build(theta_deg=0.0, tag='n0'):
                              mf=list(a['faults']), zf=list(b['faults'])))
         if i % 5 == 0:
             print(f'  row {i+1}/{len(lats)}  {time.time()-t0:.0f}s', flush=True)
-    out = dict(box=BOX, step_m=STEP_M, theta=theta_deg,
+    out = dict(box=BOX, step_m=STEP_M, theta=theta_deg, mask=mask,
                n_lat=len(lats), n_lon=len(lons),
                lats=[float(x) for x in lats], lons=[float(x) for x in lons],
                rows=rows)
@@ -139,5 +158,8 @@ def build(theta_deg=0.0, tag='n0'):
     return out
 
 if __name__ == '__main__':
-    th = None if (len(sys.argv) > 1 and sys.argv[1] == 'none') else 0.0
-    build(th, 'none' if th is None else 'n0')
+    scope = sys.argv[1] if len(sys.argv) > 1 else 'city'
+    globals()['BOX'] = SCOPES[scope]['box']
+    globals()['STEP_M'] = SCOPES[scope]['step']
+    print(SCOPES[scope]['desc'])
+    build(0.0, scope, SCOPES[scope].get('mask'))
