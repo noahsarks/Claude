@@ -373,6 +373,138 @@ def metrics(reg, lat, lon, R=6000.0, theta_deg=None, scale=1.0):
     return M
 
 
+def _pingyang_ext(reg, lat, lon, h0, S, out):
+    """接了外部水系时的平洋判定。四项与 _pingyang 一一对应，只是水的来源换成实测河道。
+
+    支干、回头环绕、屈曲三项改用外部几何；澄清停蓄仍用 DEM 河道纵比降
+    （外部数据没有高程，这一项只能留在 DEM 上算，故单独标明）。
+    """
+    cr, cc = reg.crc(lat, lon)
+    dy = (reg.ext_rc[:, 0] - cr) * reg.cdy
+    dx = (reg.ext_rc[:, 1] - cc) * reg.cdx
+    d = np.hypot(dx, dy)
+    gan = reg.ext_gan
+    near_gan = gan & (d < 4000 * S)
+    near_zhi = (~gan) & (d < 1000 * S)
+    has_gan, has_zhi = bool(near_gan.any()), bool(near_zhi.any())
+    out["py_zhi_d"] = float(d[near_zhi].min()) if has_zhi else 9999.0
+    out["py_src"] = "外部水系"
+    if has_gan and has_zhi:
+        out.update(py_zhigan=1.00, py_class="支幹相扶")
+    elif has_gan or has_zhi:
+        out.update(py_zhigan=0.40, py_class="有幹無支" if has_gan else "有支無幹")
+    else:
+        out.update(py_zhigan=0.0, py_class="俱無")
+
+    # ② 回头环绕：干水在 24 个方位扇区中的占据比例
+    if has_gan:
+        gaz = np.degrees(np.arctan2(dx[near_gan], dy[near_gan])) % 360.0
+        occ = np.zeros(24, bool); occ[(gaz // 15).astype(int)] = True
+        out["py_wrap"] = float(occ.mean())
+
+    # ③ 屈曲：取最近的那条水道，沿其折线在穴前后各约 2.5 km 数转向反复次数
+    if len(d):
+        i0 = int(np.argmin(d))
+        wid = reg.ext_wid[i0]
+        pts = [p for p in reg.ext_ways[wid]["pts"]]
+        if len(pts) >= 5:
+            P = np.array([[(p[1] - lon) * M_PER_DEG_LAT * math.cos(math.radians(lat)),
+                           (p[0] - lat) * M_PER_DEG_LAT] for p in pts])
+            dd = np.hypot(P[:, 0], P[:, 1])
+            m = dd < 2500 * S
+            if m.sum() >= 5:
+                # 先按 200 m 等距重采样。OSM 折线的顶点密度因录入者而异，
+                # 直接在原顶点上数转向，数到的是数字化精度不是河道形态
+                # （实测市中心马家沟河原顶点给出 30 次转向，显然不是「三回五度」）。
+                Q0 = P[m]
+                seg = np.hypot(*np.diff(Q0, axis=0).T)
+                cum = np.concatenate([[0], np.cumsum(seg)])
+                if cum[-1] < 400:
+                    Q = Q0
+                else:
+                    t = np.arange(0, cum[-1], 200.0)
+                    Q = np.c_[np.interp(t, cum, Q0[:, 0]), np.interp(t, cum, Q0[:, 1])]
+                v = np.diff(Q, axis=0)
+                cross = v[:-1, 0] * v[1:, 1] - v[:-1, 1] * v[1:, 0]
+                sgn = np.sign(cross[np.abs(cross) > 1e-6])
+                out["py_bends"] = int((np.diff(sgn) != 0).sum()) if sgn.size > 1 else 0
+
+    # ④ 澄清停蓄：外部数据无高程，仍用 DEM 最近河道的纵比降
+    if reg.stream_rc.size:
+        sdy = (reg.stream_rc[:, 0] - cr) * reg.cdy
+        sdx = (reg.stream_rc[:, 1] - cc) * reg.cdx
+        sd = np.hypot(sdx, sdy)
+        j = int(np.argmin(sd))
+        pr, pc = reg.stream_rc[j]
+        pts2, r, c = [(pr, pc)], pr, pc
+        for _ in range(12):
+            k = reg.d8[r, c]
+            if k < 0: break
+            r, c = r + reg.offs[k][0], c + reg.offs[k][1]
+            if not (0 <= r < reg.d8.shape[0] and 0 <= c < reg.d8.shape[1]): break
+            pts2.append((r, c))
+        if len(pts2) >= 4:
+            hs = np.array([reg.fill[a, b] for a, b in pts2], float)
+            Lm = sum(math.hypot((pts2[i+1][0]-pts2[i][0]) * reg.cdy,
+                                (pts2[i+1][1]-pts2[i][1]) * reg.cdx)
+                     for i in range(len(pts2) - 1))
+            if Lm > 1:
+                out["py_grad"] = float(abs(hs[0] - hs[-1]) / (Lm / 1000.0))
+
+    out["py_gan"] = pl(out["py_wrap"], [(0, 0), (.15, .35), (.35, .8), (.6, 1)])
+    out["py_zhi"] = pl(out["py_zhi_d"], [(0, 1), (400, 1), (1000, .5), (2000, .15), (9999, 0)])
+    out["py"] = (.40 * out["py_zhigan"]
+               + .25 * pl(float(out["py_bends"]), [(0, .15), (1, .45), (3, 1), (5, 1), (12, 1)])
+               + .20 * pl(out["py_wrap"], [(0, 0), (.15, .35), (.35, .8), (.6, 1)])
+               + .15 * pl(out["py_grad"], [(0, 1), (2, .9), (10, .4), (30, .1), (100, 0)]))
+    return out
+
+
+# ── 外部水系（v0.9，加法式改动，默认行为不变）──────────────────────
+def attach_external_rivers(reg, ways, gan_len_km=90.0, gan_kinds=("river",)):
+    """用外部水系数据（OSM waterway=river/canal）给 reg 标注「幹」与「支」。
+
+    为什么需要：DEM 汇流累积只统计瓦片**内部**汇入的面积。松花江在哈尔滨的
+    流域上万 km²，而上游在瓦片外，所以瓦片内怎么算它都不是「大水」——
+    引擎会正确地判「不判(汇流网络未见干水)」，但《水龍經》平洋法第一条
+    「以通流大水為行龍而為幹」就此用不上。
+    调低阈值去迁就坏数据是错的；正确做法是拿外部数据给「幹」。
+
+    幹／支怎么分：两条件都要满足才算幹——
+      ① OSM 的 waterway 类型在 gan_kinds 内（默认只认 river，运河渠道不算「龍」）
+      ② 同名水道在框内的**实测总长** ≥ gan_len_km
+    不预设名字，让数据自己分。原文「以通流大水為行龍而為幹，溝渠小水為割界而為支」
+    是相对的大小之别，stream/ditch 正对应「溝渠小水」。
+
+    ways: [{'name':…, 'kind':…, 'pts':[[lat,lon],…]}, …]
+    """
+    from collections import defaultdict
+    seg_len = defaultdict(float)
+    for w in ways:
+        p = w['pts']
+        for a, b in zip(p[:-1], p[1:]):
+            seg_len[w.get('name') or id(w)] += math.hypot(
+                (b[0] - a[0]) * M_PER_DEG_LAT,
+                (b[1] - a[1]) * M_PER_DEG_LAT * math.cos(math.radians(a[0]))) / 1000.0
+    rc, isgan, wid = [], [], []
+    for i, w in enumerate(ways):
+        g = (w.get('kind') in gan_kinds
+             and seg_len[w.get('name') or id(w)] >= gan_len_km)
+        for la, lo in w['pts']:
+            r, c = reg.crc(la, lo)
+            if 0 <= r < reg.fill.shape[0] and 0 <= c < reg.fill.shape[1]:
+                rc.append((r, c)); isgan.append(g); wid.append(i)
+    reg.ext_rc = np.array(rc, float) if rc else np.zeros((0, 2))
+    reg.ext_gan = np.array(isgan, bool) if rc else np.zeros(0, bool)
+    reg.ext_wid = np.array(wid, int) if rc else np.zeros(0, int)
+    reg.ext_ways = ways
+    reg.ext_len_km = dict(seg_len)
+    gan_names = sorted({w.get('name', '') for w in ways
+                        if w.get('kind') in gan_kinds
+                        and seg_len[w.get('name') or id(w)] >= gan_len_km} - {''})
+    return dict(n_pts=len(rc), n_gan=int(np.sum(isgan)), gan_names=gan_names)
+
+
 # ── B7 平洋法 ──《欽定古今圖書集成》卷 671–674《水龍經》──────────────
 # 立这一节的理由：此前 16 条规则全部出自山龙一系，而《水龙经》开篇即说
 # 「後世言地，知山之龍而不知水之龍，遂使平洋水局之地，傅會山龍之妄說」——
@@ -386,6 +518,9 @@ def _pingyang(reg, lat, lon, h0, S=1.0):
     out = {"py_zhigan": 0.0, "py_class": "俱無", "py_wrap": 0.0,
            "py_bends": 0, "py_grad": 999.0, "py": 0.0,
            "py_zhi_d": 9999.0, "py_gan": 0.0, "py_zhi": 0.0}
+    ext = getattr(reg, "ext_rc", None)
+    if ext is not None and len(ext):
+        return _pingyang_ext(reg, lat, lon, h0, S, out)
     if reg.stream_rc.size == 0:
         out.update(py_class="不判(无水系数据)", py=None, py_zhigan=None)
         return out

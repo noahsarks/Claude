@@ -12,8 +12,8 @@
 fengshui/
 ├── MANIFEST.md              ← 本文件
 ├── README.md                M0 阶段说明（引擎的规则出处与双尺度设计）
-├── rules_luantou.yaml       规则登记册 v0.22，45 个顶层节，含全部结论与撤回记录
-├── luantou.py               引擎主体（v0.8：补平洋法 + 修平地导流 bug）
+├── rules_luantou.yaml       规则登记册 v0.23，47 个顶层节，含全部结论与撤回记录
+├── luantou.py               引擎主体（v0.9：平洋法 + 平地导流修复 + 外部水系接口）
 ├── luantou_v1.py            v0.1 存档
 ├── luantou_v3.py            v0.3 存档
 ├── requirements.txt
@@ -24,6 +24,12 @@ fengshui/
 ├── sources/                 抓取过程留下的索引文件
 ├── rules_audit/             规则逐条核对原始文本（含核对方法的阴性对照标定）
 ├── layering/                条件混用问题梳理（十一条轴 + 前置判定层设计 + 古籍分类表 + 分层实测）
+├── harbin/                  应用：哈尔滨两套规则对照（现代版 v1.1 vs《葬經翼》本）
+│   ├── README.md            前置四问、两套规则的取舍、结果与分歧归因
+│   ├── harbin_compare.png   三幅图：两套规则各自的高分区 + 分位差
+│   ├── grid.py map.py compare.py   打分 / 出图 / 对照统计
+│   ├── fetch_rivers.py fetch_places.py   OSM 河道与地名
+│   └── grid_n0.json top_areas.json       4012 点结果
 ├── typical/                 典型建筑验证 + 文献编年 + 分级后的现代版规则
 │   ├── sites.yaml           8 个点，每点坐向注明出处
 │   ├── run.py               v0.6 / v0.7 并排对照
@@ -149,7 +155,7 @@ fengshui/
 
 ## 六、结论台账（全部登记在 `rules_luantou.yaml`）
 
-`rules_luantou.yaml` 是本项目的**过程台账**，45 个顶层节，含每一次撤回。
+`rules_luantou.yaml` 是本项目的**过程台账**，47 个顶层节，含每一次撤回。
 
 分级后的**结论正本**是 `typical/MODERN_RULES.yaml`（26 条规则，机器可读，
 每条带 quote／出处卷次／层／era／对象／尺度／语式／实现），散文版 `MODERN_RULES.md`；
